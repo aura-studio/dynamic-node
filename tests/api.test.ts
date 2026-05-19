@@ -163,6 +163,167 @@ describe("API (integration)", () => {
     });
   });
 
+  describe("multi-tunnel coexistence", () => {
+    const localBase = path.join(TMP_ROOT, "api-multi");
+
+    beforeAll(() => {
+      fs.mkdirSync(localBase, { recursive: true });
+    });
+
+    // Helper: create a local package that exports a custom meta
+    function makeMetaBundle(meta: string): string {
+      return `
+class T {
+  meta() { return "${meta}"; }
+  async init() {}
+  async invoke(route, req) { return JSON.stringify({ tunnel: "${meta}", route, req: JSON.parse(req) }); }
+  async close() {}
+}
+exports.Tunnel = new T();
+`;
+    }
+
+    function setupPkg(namespace: string, pkg: string, version: string, meta: string): void {
+      const fullName = `${namespace}_${pkg}_${version}`;
+      const dir = path.join(localBase, toolchain.toString(), fullName);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "bundle.js"), makeMetaBundle(meta));
+      const zip = new AdmZip();
+      zip.addFile("bundle.js", Buffer.from(makeMetaBundle(meta), "utf-8"));
+      zip.writeZip(path.join(dir, `libnode_${fullName}.zip`));
+    }
+
+    it("loads two packages from same namespace", async () => {
+      const { useWarehouse, useNamespace, getPackage } = await import("../src/api");
+      setupPkg("team-a", "alpha", "v1", "team-a-alpha");
+      setupPkg("team-a", "beta", "v1", "team-a-beta");
+
+      useNamespace("team-a");
+      useWarehouse(localBase, "");
+
+      const alpha = await getPackage("alpha", "v1");
+      const beta = await getPackage("beta", "v1");
+
+      expect(alpha.meta()).toBe("team-a-alpha");
+      expect(beta.meta()).toBe("team-a-beta");
+    });
+
+    it("loads two different versions of same package", async () => {
+      const { useNamespace, useWarehouse, getPackage } = await import("../src/api");
+      setupPkg("team-b", "worker", "v1", "worker-v1");
+      setupPkg("team-b", "worker", "v2", "worker-v2");
+
+      useNamespace("team-b");
+      useWarehouse(localBase, "");
+
+      const v1 = await getPackage("worker", "v1");
+      const v2 = await getPackage("worker", "v2");
+
+      expect(v1.meta()).toBe("worker-v1");
+      expect(v2.meta()).toBe("worker-v2");
+      expect(v1).not.toBe(v2);
+    });
+
+    it("loads packages from two different namespaces simultaneously", async () => {
+      const { useWarehouse, useNamespace, getPackage } = await import("../src/api");
+      setupPkg("ns1", "svc", "v1", "ns1-svc");
+      setupPkg("ns2", "svc", "v1", "ns2-svc");
+
+      useWarehouse(localBase, "");
+
+      // Load ns1 package
+      useNamespace("ns1");
+      const ns1Tunnel = await getPackage("svc", "v1");
+
+      // Load ns2 package (should not affect ns1)
+      useNamespace("ns2");
+      const ns2Tunnel = await getPackage("svc", "v1");
+
+      expect(ns1Tunnel.meta()).toBe("ns1-svc");
+      expect(ns2Tunnel.meta()).toBe("ns2-svc");
+      expect(ns1Tunnel).not.toBe(ns2Tunnel);
+    });
+
+    it("each tunnel maintains independent invocation state", async () => {
+      const { useNamespace, useWarehouse, getPackage } = await import("../src/api");
+      setupPkg("indie", "a", "v1", "indie-a");
+      setupPkg("indie", "b", "v1", "indie-b");
+
+      useNamespace("indie");
+      useWarehouse(localBase, "");
+
+      const a = await getPackage("a", "v1");
+      const b = await getPackage("b", "v1");
+
+      const ra = await a.invoke("/route-a", JSON.stringify({ x: 1 }));
+      const rb = await b.invoke("/route-b", JSON.stringify({ y: 2 }));
+
+      const pa = JSON.parse(ra);
+      const pb = JSON.parse(rb);
+
+      expect(pa.tunnel).toBe("indie-a");
+      expect(pb.tunnel).toBe("indie-b");
+      expect(pa.route).toBe("/route-a");
+      expect(pb.route).toBe("/route-b");
+      expect(pa.req.x).toBe(1);
+      expect(pb.req.y).toBe(2);
+    });
+
+    it("closing one tunnel does not affect others", async () => {
+      const { useNamespace, useWarehouse, getPackage, closePackage } =
+        await import("../src/api");
+      setupPkg("close-test", "keep", "v1", "keep-me");
+      setupPkg("close-test", "drop", "v1", "drop-me");
+
+      useNamespace("close-test");
+      useWarehouse(localBase, "");
+
+      const keep = await getPackage("keep", "v1");
+      const drop = await getPackage("drop", "v1");
+
+      expect(keep.meta()).toBe("keep-me");
+      expect(drop.meta()).toBe("drop-me");
+
+      // Close one
+      await closePackage("drop", "v1");
+
+      // "keep" should still work
+      const r = await keep.invoke("/check", JSON.stringify({ alive: true }));
+      expect(JSON.parse(r).tunnel).toBe("keep-me");
+
+      // "drop" can still be retrieved from Level 2 cache
+      const drop2 = await getPackage("drop", "v1");
+      expect(drop2).toBe(drop);
+    });
+
+    it("mixes static + S3-loaded tunnels", async () => {
+      const { useWarehouse, useNamespace, getPackage, registerPackage } =
+        await import("../src/api");
+      const { MockTunnel } = await import("./test-helpers");
+      setupPkg("mixed", "dynamic-pkg", "v1", "dynamic");
+
+      useNamespace("mixed");
+      useWarehouse(localBase, "");
+
+      // Static
+      const staticT = new MockTunnel("static-tunnel");
+      await registerPackage("static-pkg", "v1", staticT);
+
+      // Dynamic (from warehouse)
+      const dynamicT = await getPackage("dynamic-pkg", "v1");
+
+      expect(staticT.meta()).toBe("static-tunnel");
+      expect(dynamicT.meta()).toBe("dynamic");
+
+      const sr = await staticT.invoke("s", "{}");
+      const dr = await dynamicT.invoke("d", "{}");
+      expect(sr).toBe("mock-response:s");
+      expect(JSON.parse(dr).tunnel).toBe("dynamic");
+
+      await staticT.close();
+    });
+  });
+
   describe("S3 integration (full flow)", () => {
     it("downloads, extracts, and loads from S3", async () => {
       const { useWarehouse, useNamespace, useDefaultVersion, getPackage } =

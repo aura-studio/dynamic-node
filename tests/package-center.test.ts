@@ -119,6 +119,74 @@ describe("DynamicCenter", () => {
     });
   });
 
+  describe("multi-tunnel coexistence (cache level)", () => {
+    it("Level 1 cache stores two different packages independently", async () => {
+      const m1 = new MockTunnel("pkg-a");
+      const m2 = new MockTunnel("pkg-b");
+      await center.registerPackage("a", "v1", m1);
+      await center.registerPackage("b", "v1", m2);
+
+      const t1 = await center.getTunnel("a", "v1");
+      const t2 = await center.getTunnel("b", "v1");
+
+      expect(t1.meta()).toBe("pkg-a");
+      expect(t2.meta()).toBe("pkg-b");
+      expect(t1).not.toBe(t2);
+    });
+
+    it("Level 1 stores two versions of same package as separate entries", async () => {
+      const m1 = new MockTunnel("v1");
+      const m2 = new MockTunnel("v2");
+      await center.registerPackage("svc", "v1", m1);
+      await center.registerPackage("svc", "v2", m2);
+
+      const t1 = await center.getTunnel("svc", "v1");
+      const t2 = await center.getTunnel("svc", "v2");
+
+      expect(t1.meta()).toBe("v1");
+      expect(t2.meta()).toBe("v2");
+      expect(t1).not.toBe(t2);
+    });
+
+    it("version fallback correctly backfills both keys", async () => {
+      center.useDefaultVersion("default");
+      const def = new MockTunnel("default");
+      await center.registerPackage("app", "default", def);
+
+      // Request a version that doesn't exist → fallback to default
+      const t = await center.getTunnel("app", "v99");
+
+      // Both "v99" and "default" should now be cached
+      const direct = await center.getTunnel("app", "default");
+      const backfill = await center.getTunnel("app", "v99");
+
+      expect(direct).toBe(def);
+      expect(backfill).toBe(def);
+      expect(direct).toBe(backfill);
+    });
+
+    it("changing namespace later does not affect previously loaded tunnels", async () => {
+      center.useNamespace("ns-a");
+      const ma = new MockTunnel("ns-a-tunnel");
+      await center.registerPackage("pkg", "v1", ma);
+
+      // Switch namespace
+      center.useNamespace("ns-b");
+      const mb = new MockTunnel("ns-b-tunnel");
+      await center.registerPackage("pkg", "v1", mb);
+
+      // Both can be accessed — but currently only ns-b is the active namespace
+      // ns-a tunnels still exist in cache, just not reachable via current namespace
+      center.useNamespace("ns-a");
+      const ta = await center.getTunnel("pkg", "v1");
+      expect(ta.meta()).toBe("ns-a-tunnel");
+
+      center.useNamespace("ns-b");
+      const tb = await center.getTunnel("pkg", "v1");
+      expect(tb.meta()).toBe("ns-b-tunnel");
+    });
+  });
+
   describe("singleton", () => {
     it("is a shared instance", () => {
       expect(singleton).toBeDefined();
