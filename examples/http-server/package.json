@@ -1,0 +1,7 @@
+{
+  "name": "dynamic-node-http-example",
+  "private": true,
+  "dependencies": {
+    "@aura-studio/dynamic-node": "file:../.."
+  }
+}
