@@ -6,3 +6,4 @@ dist/
 *.tgz
 coverage/
 .env
+tests/__fixtures__/bundle.js
