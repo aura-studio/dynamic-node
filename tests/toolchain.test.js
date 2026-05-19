@@ -1,5 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { toolchain } from "../src/toolchain";
+const { toolchain } = require("../src/toolchain");
 
 describe("toolchain", () => {
   afterEach(() => {
@@ -25,7 +24,6 @@ describe("toolchain", () => {
       const arch = toolchain.arch;
       expect(arch).toBeTruthy();
       expect(typeof arch).toBe("string");
-      // On macOS, should be amd64 or arm64
       expect(["amd64", "arm64"]).toContain(arch);
     });
 

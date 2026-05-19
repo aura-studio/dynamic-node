@@ -1,24 +1,27 @@
 /**
- * warehouse.ts — Warehouse: orchestrates Local + Remote
- * (counterpart of Go warehouse.go)
+ * warehouse.js — Warehouse: orchestrates Local + Remote
  *
  * Local-first strategy: if the package exists locally, load it directly.
  * Otherwise, sync from remote, extract, then load.
+ *
+ * Returns raw module exports (no interface constraint).
  */
 
-import { Local } from "./local";
-import { Remote, createRemote } from "./remote";
-import { Tunnel } from "./tunnel";
+"use strict";
 
-export class Warehouse {
-  local: Local | null = null;
-  remote: Remote | null = null;
+const { Local } = require("./local");
+const { createRemote } = require("./remote");
+
+class Warehouse {
+  constructor() {
+    this.local = null;
+    this.remote = null;
+  }
 
   /**
    * Initializes the warehouse with local and optional remote paths.
-   * (counterpart of Go Warehouse.Init)
    */
-  init(localPath: string, remotePath: string): void {
+  init(localPath, remotePath) {
     this.local = new Local(localPath);
     this.remote = createRemote(remotePath);
   }
@@ -26,14 +29,16 @@ export class Warehouse {
   /**
    * Loads a plugin package by name.
    *
-   * Flow (counterpart of Go Warehouse.Load):
-   *   1. Check local exists → load directly
+   * Flow:
+   *   1. Check local exists -> load directly
    *   2. If not, sync from remote
    *   3. Extract zip
-   *   4. Check local exists again → load
-   *   5. If still not found → error
+   *   4. Check local exists again -> load
+   *   5. If still not found -> error
+   *
+   * Returns raw module.exports from the loaded bundle.
    */
-  async load(name: string): Promise<Tunnel> {
+  async load(name) {
     console.log(`[dynamic] load warehouse package ${name}...`);
 
     if (!this.local) {
@@ -42,12 +47,12 @@ export class Warehouse {
 
     // Try local first
     if (this.local.exists(name)) {
-      const tunnel = await this.local.load(name);
+      const mod = await this.local.load(name);
       console.log(`[dynamic] load warehouse package ${name} success (local)`);
-      return tunnel;
+      return mod;
     }
 
-    // No local → sync from remote
+    // No local -> sync from remote
     if (!this.remote) {
       throw new Error("dynamic: warehouse package not exists");
     }
@@ -62,11 +67,13 @@ export class Warehouse {
       throw new Error("dynamic: warehouse package not exists after extraction");
     }
 
-    const tunnel = await this.local.load(name);
+    const mod = await this.local.load(name);
     console.log(`[dynamic] load warehouse package ${name} success (remote)`);
-    return tunnel;
+    return mod;
   }
 }
 
-/** Module-level singleton (counterpart of Go `var warehouse = NewWarehouse()`) */
-export const warehouse = new Warehouse();
+/** Module-level singleton */
+const warehouse = new Warehouse();
+
+module.exports = { Warehouse, warehouse };

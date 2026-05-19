@@ -1,5 +1,4 @@
-import { describe, it, expect } from "vitest";
-import { allowed, AllowedType } from "../src/allowed";
+const { allowed, AllowedType } = require("../src/allowed");
 
 describe("allowed", () => {
   describe("isKeyword", () => {
@@ -63,9 +62,6 @@ describe("allowed", () => {
     });
 
     it("rejects empty path", () => {
-      // The regex allows empty match or single chars - check that empty is handled
-      // Go allows empty path via the regex optional group.
-      // Our regex is the same as Go, so empty matches
       expect(allowed.isPath("")).toBe(true);
     });
   });
@@ -115,7 +111,6 @@ describe("allowed", () => {
     });
 
     it("URL takes priority over Path", () => {
-      // "s3://bucket" matches both URL and Path regex patterns
       const result = allowed.detect("s3://bucket");
       expect(result.type).toBe(AllowedType.URL);
     });
@@ -128,7 +123,7 @@ describe("allowed", () => {
 
   describe("match (edge cases)", () => {
     it("handles unknown AllowedType gracefully", () => {
-      expect(allowed.match(999 as AllowedType, "test")).toBe(false);
+      expect(allowed.match(999, "test")).toBe(false);
     });
   });
 });

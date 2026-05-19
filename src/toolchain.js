@@ -1,24 +1,26 @@
 /**
- * toolchain.ts — Toolchain singleton (counterpart of Go toolchain.go + env.go)
+ * toolchain.js — Toolchain singleton
  *
  * Detects OS, Arch, Compiler (Node.js version), and Variant.
  * Assembles them into a toolchain string: <os>_<arch>_<compiler>_<variant>
  *
- * Priority (same as Go):
+ * Priority:
  *   1. Programmatic setter (setOS / setArch / setCompiler / setVariant)
  *   2. Environment variables (DYNAMIC_OS / DYNAMIC_ARCH / DYNAMIC_COMPILER / DYNAMIC_VARIANT)
  *   3. Runtime auto-detection
  */
 
-import * as os from "os";
-import * as fs from "fs";
-import { execSync } from "child_process";
+"use strict";
+
+const os = require("os");
+const fs = require("fs");
+const { execSync } = require("child_process");
 
 // ---------------------------------------------------------------------------
-// Auto-detection helpers (counterpart of Go env.go)
+// Auto-detection helpers
 // ---------------------------------------------------------------------------
 
-function detectOS(): string {
+function detectOS() {
   const platform = os.platform();
 
   switch (platform) {
@@ -33,10 +35,10 @@ function detectOS(): string {
   }
 }
 
-function detectLinuxDescriptor(): string {
+function detectLinuxDescriptor() {
   try {
     const content = fs.readFileSync("/etc/os-release", "utf-8");
-    const m: Record<string, string> = {};
+    const m = {};
     for (const line of content.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
@@ -56,7 +58,7 @@ function detectLinuxDescriptor(): string {
   }
 }
 
-function detectDarwinVersion(): string {
+function detectDarwinVersion() {
   try {
     const ver = execSync("sw_vers -productVersion", { encoding: "utf-8" }).trim();
     return ver || "";
@@ -70,10 +72,9 @@ function detectDarwinVersion(): string {
   }
 }
 
-function detectWindowsVersion(): string {
+function detectWindowsVersion() {
   try {
     const ver = os.version(); // e.g. "Windows 10 Pro"
-    // Extract version-like token
     const match = ver.match(/[\d]+(?:\.[\d]+)*/);
     return match ? match[0] : "";
   } catch {
@@ -81,7 +82,7 @@ function detectWindowsVersion(): string {
   }
 }
 
-function detectArch(): string {
+function detectArch() {
   const arch = os.arch();
   switch (arch) {
     case "x64":
@@ -97,7 +98,7 @@ function detectArch(): string {
   }
 }
 
-function detectCompiler(): string {
+function detectCompiler() {
   // process.version is "v22.11.0", we want "node22.11.0"
   const ver = process.version.replace(/^v/, "");
   return "node" + ver;
@@ -108,13 +109,15 @@ function detectCompiler(): string {
 // ---------------------------------------------------------------------------
 
 class Toolchain {
-  private _os: string = "";
-  private _arch: string = "";
-  private _compiler: string = "";
-  private _variant: string = "";
-  private _initialized = false;
+  constructor() {
+    this._os = "";
+    this._arch = "";
+    this._compiler = "";
+    this._variant = "";
+    this._initialized = false;
+  }
 
-  private ensureInit(): void {
+  _ensureInit() {
     if (this._initialized) return;
     this._initialized = true;
 
@@ -151,57 +154,58 @@ class Toolchain {
     }
   }
 
-  // Setters (priority 1 — counterpart of Go build-time ldflags injection)
-  setOS(value: string): void {
+  // Setters (priority 1)
+  setOS(value) {
     this._os = value;
     this._initialized = false;
   }
 
-  setArch(value: string): void {
+  setArch(value) {
     this._arch = value;
     this._initialized = false;
   }
 
-  setCompiler(value: string): void {
+  setCompiler(value) {
     this._compiler = value;
     this._initialized = false;
   }
 
-  setVariant(value: string): void {
+  setVariant(value) {
     this._variant = value;
     this._initialized = false;
   }
 
   // Getters
-  get osName(): string {
-    this.ensureInit();
+  get osName() {
+    this._ensureInit();
     return this._os;
   }
 
-  get arch(): string {
-    this.ensureInit();
+  get arch() {
+    this._ensureInit();
     return this._arch;
   }
 
-  get compiler(): string {
-    this.ensureInit();
+  get compiler() {
+    this._ensureInit();
     return this._compiler;
   }
 
-  get variant(): string {
-    this.ensureInit();
+  get variant() {
+    this._ensureInit();
     return this._variant;
   }
 
   /**
    * Returns the toolchain string: <os>_<arch>_<compiler>_<variant>
-   * e.g. "ubuntu24.04_amd64_node22.11.0_bundle"
    */
-  toString(): string {
-    this.ensureInit();
+  toString() {
+    this._ensureInit();
     return `${this._os}_${this._arch}_${this._compiler}_${this._variant}`;
   }
 }
 
-/** Module-level singleton (counterpart of Go `var toolchain = NewToolchain()`) */
-export const toolchain = new Toolchain();
+/** Module-level singleton */
+const toolchain = new Toolchain();
+
+module.exports = { toolchain };

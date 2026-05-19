@@ -1,14 +1,14 @@
 /**
  * example/basic/app-s3.js
  *
- * 完整示例 — 配置 S3 仓库，从远程拉取并加载插件。
+ * Full example — configure S3 warehouse, download and load plugins remotely.
  *
- * 前置条件：
- *   1. 已安装: npm install github:aura-studio/dynamic-node
- *   2. 已配置 AWS 凭证 (环境变量或 ~/.aws/credentials)
- *   3. S3 上已有 dynamic-node-cli 打包上传的 zip
+ * Prerequisites:
+ *   1. Installed: npm install github:aura-studio/dynamic-node
+ *   2. AWS credentials configured (env vars or ~/.aws/credentials)
+ *   3. Package zip uploaded to S3 via dynamic-node-cli
  *
- * 运行：
+ * Run:
  *   AWS_PROFILE=aws-3 node app-s3.js
  */
 
@@ -22,25 +22,21 @@ const {
 } = require("@aura-studio/dynamic-node");
 
 // ============================================================
-// 1. 配置仓库
+// 1. Configure warehouse
 // ============================================================
-// 本地仓库路径（用于缓存下载的 zip + 解压内容）
 const LOCAL_WAREHOUSE = "/tmp/dynamic-node-warehouse";
-// S3 远程仓库地址
 const REMOTE_WAREHOUSE = "s3://dynamic-loader-code-255491288557";
 
 useWarehouse(LOCAL_WAREHOUSE, REMOTE_WAREHOUSE);
 
 // ============================================================
-// 2. 配置命名空间与默认版本
+// 2. Configure namespace and default version
 // ============================================================
-// namespace: hotscripts
-// defaultVersion: 当请求的版本不存在时，回退到此版本
 useNamespace("hotscripts");
 useDefaultVersion("default");
 
 // ============================================================
-// 3. 查看当前环境 toolchain
+// 3. Inspect current toolchain
 // ============================================================
 console.log("toolchain:", toolchain.toString());
 console.log("  os:", toolchain.osName);
@@ -50,27 +46,29 @@ console.log("  variant:", toolchain.variant);
 console.log("");
 
 // ============================================================
-// 4. 从 S3 加载插件
+// 4. Load plugin from S3
 // ============================================================
 async function main() {
   console.log("=== Loading package from S3 ===");
 
   try {
-    // getPackage 会触发:
-    //   1) 检查本地缓存
-    //   2) 如果没有, 从 S3 下载 zip
-    //   3) 解压到本地仓库
-    //   4) require() 加载模块
-    //   5) 调用 tunnel.init()
-    const tunnel = await getPackage("hello", "v1");
+    // getPackage will:
+    //   1) Check local cache
+    //   2) If not found, download zip from S3
+    //   3) Extract to local warehouse
+    //   4) require() the module
+    const mod = await getPackage("hello", "v1");
 
-    console.log("tunnel meta:", tunnel.meta());
+    console.log("module loaded:", mod);
+    console.log("module keys:", Object.keys(mod));
 
-    // 调用插件功能
-    const resp = await tunnel.invoke("/api/hello", JSON.stringify({ name: "Node" }));
-    console.log("invoke response:", resp);
+    // Use whatever the module exports
+    if (typeof mod.handler === "function") {
+      const resp = await mod.handler("/api/hello", JSON.stringify({ name: "Node" }));
+      console.log("handler response:", resp);
+    }
 
-    // 关闭
+    // Close
     await closePackage("hello", "v1");
     console.log("=== Done ===");
   } catch (err) {

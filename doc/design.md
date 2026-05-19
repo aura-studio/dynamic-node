@@ -1,10 +1,18 @@
-# dynamic-node — 设计文档
+# dynamic-node — Design Document
 
-## 1. 设计目标
+## 1. Design Goals
 
-完整对标 `github.com/aura-studio/dynamic`（Go 库）的架构，以 TypeScript 实现 Node.js 运行时环境下的动态插件加载能力。
+Provide a TypeScript library for dynamically loading plugin packages at runtime in Node.js.
+Packages are loaded as raw JS modules — no Tunnel abstraction. Each package independently
+exports whatever it needs (handlers, routes, classes, etc.) and registers with the host
+framework on its own.
 
-## 2. 项目结构
+Key changes from the previous design:
+- **No Tunnel interface** — loaded modules are plain `module.exports`, the caller decides how to use them
+- **Multi-package coexistence** — multiple packages can be loaded simultaneously without conflict
+- **Later load wins** — if the same pkg+version is loaded again, the new module overwrites the old one
+
+## 2. Project Structure
 
 ```
 dynamic-node/
@@ -13,254 +21,240 @@ dynamic-node/
 ├── .gitignore
 ├── .npmignore
 ├── src/
-│   ├── index.ts               # 主入口，导出公共 API
-│   ├── api.ts                  # 顶层函数：useWarehouse / getPackage / ...
-│   ├── warehouse.ts            # Warehouse：编排 Local + Remote
-│   ├── local.ts                # 本地仓库：检查、解压、require() 加载
-│   ├── remote.ts               # S3 远程下载 + 原子写入
-│   ├── package-center.ts       # DynamicCenter：命名空间 + 版本管理 + 内存缓存
-│   ├── tunnel-center.ts        # TunnelCenter：已加载 Tunnel 注册表 + 懒加载
-│   ├── tunnel.ts               # Tunnel 接口 + Template 默认实现
-│   ├── toolchain.ts            # Toolchain 单例：os_arch_compiler_variant 拼装
-│   └── allowed.ts              # 输入校验：isKeyword / isPath / isURL
-├── test/
+│   ├── index.ts               # Main entry, exports public API
+│   ├── api.ts                  # Top-level functions: useWarehouse / getPackage / ...
+│   ├── warehouse.ts            # Warehouse: orchestrates Local + Remote
+│   ├── local.ts                # Local warehouse: check, extract, require() load
+│   ├── remote.ts               # S3 remote download + atomic write
+│   ├── package-center.ts       # PackageCenter: namespace + version management + memory cache
+│   ├── toolchain.ts            # Toolchain singleton: os_arch_compiler_variant assembly
+│   └── allowed.ts              # Input validation: isKeyword / isPath / isURL
+├── tests/
 │   ├── api.test.ts
 │   ├── warehouse.test.ts
 │   ├── local.test.ts
 │   ├── remote.test.ts
 │   ├── toolchain.test.ts
-│   └── package-center.test.ts
+│   ├── package-center.test.ts
+│   └── allowed.test.ts
 ├── doc/
 │   ├── requirements.md
 │   └── design.md
-└── README.md
+└── examples/
+    ├── basic/
+    └── lambda-node/
 ```
 
-## 3. 模块与对标关系
+## 3. Module Responsibilities
 
-| Node 模块 | Go 对标文件 | 职责 |
-|---|---|---|
-| `tunnel.ts` | `tunnel.go` | `Tunnel` 接口 + `Template` + `TunnelCenter`（单例，管理已加载隧道） |
-| `toolchain.ts` | `toolchain.go` + `env.go` | OS/Arch/Compiler/Variant 检测，拼装 toolchain 字符串 |
-| `allowed.ts` | `allowed.go` | 输入校验：keyword（namespace/package/version）、path、URL |
-| `local.ts` | `local.go` | 本地文件存在性检查、zip 解压、`require()` 加载模块 |
-| `remote.ts` | `remote.go` | `Remote` 接口 + `S3Remote` 实现（下载、原子写入、解压） |
-| `warehouse.ts` | `warehouse.go` | `Warehouse`：本地优先，远程兜底 |
-| `package-center.ts` | `package.go` | `DynamicCenter`（单例）：命名空间、默认版本、版本解析 |
-| `api.ts` | `api.go` | 对外公共 API（`useWarehouse` / `getPackage` / ...） |
+| Node Module | Responsibility |
+|---|---|
+| `api.ts` | Public API: `useWarehouse` / `getPackage` / `closePackage` / `registerPackage` |
+| `package-center.ts` | `PackageCenter` singleton: namespace, default version, memory cache |
+| `warehouse.ts` | `Warehouse`: local-first strategy, remote fallback |
+| `local.ts` | Local file existence check, zip extraction, `require()` module load |
+| `remote.ts` | `Remote` interface + `S3Remote` implementation (download, atomic write) |
+| `toolchain.ts` | OS/Arch/Compiler/Variant detection, toolchain string assembly |
+| `allowed.ts` | Input validation: keyword, path, URL |
 
-## 4. 核心架构
+## 4. Core Architecture
 
-### 4.1 三级缓存模型
+### 4.1 Two-Level Cache Model
 
 ```
 getPackage(pkg, version)
   │
-  ├─ Level 1: DynamicCenter.dynamics (Map<index, Tunnel>)
-  │   内存级缓存，命中后直接返回
+  ├─ Level 1: PackageCenter.packages (Map<key, module>)
+  │   In-memory cache, return immediately on hit
   │
-  ├─ Level 2: TunnelCenter.tunnels (Map<name, Tunnel>)
-  │   已初始化的 Tunnel 实例，命中后回写 Level 1
-  │
-  └─ Level 3: Warehouse.Load(name)
+  └─ Level 2: Warehouse.load(name)
        │
-       ├─ Local.Exists(name) → 检查本地目录
-       │   ├─ bundle variant: 检查 bundle.js
-       │   └─ full variant:   检查 index.js / package.json
+       ├─ Local.exists(name) → check local directory
+       │   ├─ bundle variant: check bundle.js
+       │   └─ full variant:   check index.js / package.json
        │
-       ├─ Local.Load(name)
-       │   ├─ require() 加载模块
-       │   ├─ 获取 Tunnel 实例
-       │   └─ Tunnel.init()
+       ├─ Local.load(name)
+       │   ├─ require() loads the module
+       │   └─ Returns raw module.exports (any)
        │
-       └─ Remote.Sync(name) [当 Local.Exists 返回 false]
-           ├─ S3 GetObject 下载 libnode_<name>.zip
-           ├─ 原子写入（tmp + rename）
-           └─ adm-zip 解压到本地目录
-               → 回到 Local.Exists / Local.Load
+       └─ Remote.sync(name) [when Local.exists returns false]
+           ├─ S3 GetObject downloads libnode_<name>.zip
+           ├─ Atomic write (tmp + rename)
+           └─ adm-zip extracts to local directory
+               → back to Local.exists / Local.load
 ```
 
-### 4.2 Toolchain 检测
+### 4.2 Multi-Package Loading
 
-**优先级**（与 Go `toolchain.go` 一致）：
-1. 代码显式注入（Go 用 `-ldflags`，Node 用 setter 函数）
-2. 环境变量（`DYNAMIC_OS` / `DYNAMIC_ARCH` / `DYNAMIC_COMPILER` / `DYNAMIC_VARIANT`）
-3. 运行时自动检测
+Multiple packages can be loaded simultaneously. Each is identified by a
+composite key: `(namespace, pkg, version)`.
 
-**OS 检测**：
-- Linux: 读取 `/etc/os-release` 获取 `ID` + `VERSION_ID`（如 `ubuntu24.04`）
-- macOS/Darwin: 执行 `sw_vers -productVersion` 获取版本号（如 `darwin15.4`）
-- Windows: 通过 `os.version()` 获取版本号
+- Packages are independently cached and retrieved
+- Closing one package does not affect others
+- If the same key is registered/loaded again, the new module overwrites the old one
+- Each loaded module is responsible for its own registration with the host framework
 
-**Arch 检测**：
-- `os.arch()` 映射：`x64` → `amd64`，`arm64` → `arm64`
+### 4.3 Toolchain Detection
 
-**Compiler 检测**：
-- `process.version` 去除前缀 `v`，添加 `node` 前缀（如 `node22.11.0`）
+**Priority** (same as before):
+1. Programmatic setter (setOS / setArch / setCompiler / setVariant)
+2. Environment variables (DYNAMIC_OS / DYNAMIC_ARCH / DYNAMIC_COMPILER / DYNAMIC_VARIANT)
+3. Runtime auto-detection
 
-**Variant 检测**：
-- 默认值 `"bundle"`（Go 版默认 `"generic"`）
-
-**Toolchain 字符串格式**：
+**Toolchain string format**:
 ```
 <os>_<arch>_<compiler>_<variant>
-例如: ubuntu24.04_amd64_node22.11.0_bundle
+e.g.: ubuntu24.04_amd64_node22.11.0_bundle
 ```
 
-### 4.3 S3 路径构造
+### 4.4 S3 Path Construction
 
 ```
 S3 Key = <toolchain>/<name>/libnode_<name>.zip
 
-其中:
+Where:
   toolchain = os_arch_compiler_variant
   name      = namespace_package_version
 
-完整示例:
+Full example:
   ubuntu24.04_amd64_node22.11.0_bundle/scp_myapp_v1/libnode_scp_myapp_v1.zip
 ```
 
-对应 `dynamic-node-cli` 上传时的路径规则（`doc/cli.md:96-98`）。
+### 4.5 Module Loading Mechanism
 
-### 4.4 模块加载机制
-
-**bundle variant**：
+**bundle variant**:
 ```
 <local>/<toolchain>/<name>/
-  ├── bundle.js                  ← require() 入口
-  └── libnode_<name>.zip         ← 原始 zip（保留，用于 clean cache 判定）
+  ├── bundle.js                  ← require() entry point
+  └── libnode_<name>.zip         ← original zip (retained)
 ```
 
-**full variant**：
+**full variant**:
 ```
 <local>/<toolchain>/<name>/
-  ├── package.json               ← require() 识别入口
+  ├── package.json               ← require() resolves entry
   ├── index.js
   ├── node_modules/
   │   └── ...
-  └── libnode_<name>.zip         ← 原始 zip
+  └── libnode_<name>.zip         ← original zip
 ```
 
 ```typescript
-// local.ts — load 方法
-async load(name: string): Promise<Tunnel> {
+// local.ts — load method
+async load(name: string): Promise<any> {
   const dir = path.join(this.localPath, toolchain.toString(), name);
   const entryFile = toolchain.variant === "bundle"
     ? path.join(dir, "bundle.js")
-    : dir; // Node 自动解析 package.json#main
+    : dir; // Node resolves package.json#main automatically
 
-  // 清除 require 缓存
+  // Clear require cache
   delete require.cache[require.resolve(entryFile)];
   const mod = require(entryFile);
 
-  // 支持两种导出模式（对标 Go plugin 包的 Tunnel 变量 / New 函数）
-  // 模式1: module.exports.Tunnel = new MyTunnel()
-  // 模式2: module.exports.New = () => new MyTunnel()
-  return mod.Tunnel ?? mod.New?.();
+  // Return raw module.exports — no Tunnel constraint
+  return mod;
 }
 ```
 
-### 4.5 单例模式
+### 4.6 Singleton Pattern
 
-Go 版使用包级变量 + `sync.Once` 实现单例。Node 版使用模块级闭包变量：
+Module-level singleton variables:
 
 ```typescript
-// 每个模块都有对应的模块级单例实例
-
 // toolchain.ts
-export const toolchain = new Toolchain();  // 懒初始化
+export const toolchain = new Toolchain();
 
 // warehouse.ts
-let _warehouse: Warehouse | null = null;
-export function getWarehouse(): Warehouse {
-  if (!_warehouse) throw new Error("dynamic: warehouse not initialized");
-  return _warehouse;
-}
+export const warehouse = new Warehouse();
 
 // package-center.ts
-const packageCenter = new DynamicCenter();
-
-// tunnel-center.ts
-const tunnelCenter = new TunnelCenter();
+export const packageCenter = new PackageCenter();
 ```
 
-### 4.6 错误处理
+### 4.7 Error Handling
 
-- S3 对象不存在：抛出 `TunnelNotExist` 错误（对标 Go `ErrTunnelNotExits`）
-- 输入校验失败：抛出 `Error` 并附带描述信息
-- 模块加载失败：抛出原始 `Error`
-- 网络/文件 I/O 错误：抛出错误，不吞没
+- S3 object not found: throws `TunnelNotExistError`
+- Input validation failure: throws `Error` with description
+- Module load failure: throws original `Error`
+- Network/file I/O errors: thrown as-is
 
-## 5. 公共 API
+## 5. Public API
 
 ```typescript
-// === 仓库配置 ===
-// local: 本地仓库路径（必须）
-// remote: 远程仓库 URL，支持 s3:// 协议（可选）
+// === Warehouse Configuration ===
 useWarehouse(local: string, remote: string): void;
 
-// === 包配置 ===
+// === Package Configuration ===
 useNamespace(namespace: string): void;
 useDefaultVersion(version: string): void;
 
-// === 包管理 ===
-registerPackage(pkg: string, version: string, tunnel: Tunnel): void;
-getPackage(pkg: string, version: string): Promise<Tunnel>;
-closePackage(pkg: string, version: string): void;
-
-// === Tunnel 接口 ===
-interface Tunnel {
-  meta(): string;
-  init(): Promise<void>;
-  invoke(route: string, req: string): Promise<string>;
-  close(): Promise<void>;
-}
-
-// === Template 默认实现 ===
-class Template implements Tunnel {
-  meta(): string { return ""; }
-  async init(): Promise<void> {}
-  async invoke(route: string, req: string): Promise<string> { return ""; }
-  async close(): Promise<void> {}
-}
+// === Package Management ===
+registerPackage(pkg: string, version: string, mod: any): Promise<void>;
+getPackage(pkg: string, version: string): Promise<any>;
+closePackage(pkg: string, version: string): Promise<void>;
 ```
 
-## 6. 依赖
+## 6. Dependencies
 
-| npm 包 | 版本 | 用途 |
+| npm Package | Version | Usage |
 |---|---|---|
-| `@aws-sdk/client-s3` | `^3.x` | S3 文件下载 |
-| `adm-zip` | `^0.5.x` | Zip 解压 |
-| `typescript` | `^5.x` | 编译（dev） |
-| `@types/node` | `^20.x` | Node 类型（dev） |
-| `@types/adm-zip` | `^0.5.x` | adm-zip 类型（dev） |
-| `vitest` | `^1.x` | 测试（dev） |
+| `@aws-sdk/client-s3` | `^3.x` | S3 file download |
+| `adm-zip` | `^0.5.x` | Zip extraction |
+| `typescript` | `^5.x` | Compilation (dev) |
+| `@types/node` | `^20.x` | Node types (dev) |
+| `@types/adm-zip` | `^0.5.x` | adm-zip types (dev) |
+| `vitest` | `^1.x` | Testing (dev) |
 
-## 7. 与 Go 版的核心差异
+## 7. Usage Pattern
 
-| 维度 | Go `dynamic/` | Node.js `dynamic-node` |
-|---|---|---|
-| 插件格式 | `libgo_*.so` + `libcgo_*.so` | `libnode_*.zip`（单文件） |
-| 加载机制 | `plugin.Open()` + `Lookup("Tunnel")` | `require()` + `mod.Tunnel` 或 `mod.New()` |
-| CGO 桥接 | 需要（libcgo.so 导出 C 函数） | 不需要 |
-| 解压步骤 | 不需要（.so 直接加载） | 需要（zip → 目录 → require） |
-| I/O 模型 | 同步 | 异步（Promise） |
-| variant 含义 | 构建参数标识（generic） | 构建方式标识（bundle / full） |
-| 架构检测 | `go env GOARCH/GOAMD64`（支持 amd64v1/v2/v3/v4） | `os.arch()`（仅 amd64/arm64） |
-| 默认 variant | `"generic"` | `"bundle"` |
+Each dynamically loaded module is a self-contained JS file that exports
+whatever the host framework needs:
 
-## 8. 关于 lambda-node.yaml 的说明
+```javascript
+// bundle.js — example of a dynamically loaded module
+exports.name = "my-service";
+exports.VERSION = "1.0.0";
 
-虽然 `dynamic-node` 本身不含配置解析代码，但上层 lambda 工程使用此库时，建议使用 `lambda-node.yaml` 而非复用 `lambda.yaml`。理由：
+exports.routes = {
+  "/api/hello": async (req) => {
+    return JSON.stringify({ message: "Hello!" });
+  },
+  "/api/status": async () => {
+    return JSON.stringify({ status: "ok" });
+  },
+};
 
-| 决策点 | 原因 |
-|---|---|
-| **值与语义不同** | `lambda.yaml` 中 `compiler: go1.25.5` / `variant: generic` 是 Go 语义；Node 需要 `compiler: node22.11.0` / `variant: bundle`。同一文件无法同时满足两种语义 |
-| **Go/Node 共存** | 一个项目可能同时有 Go Lambda 和 Node Lambda（如 `scp-lambda` 的多个子模块），两个独立配置文件互不干扰 |
-| **字段结构兼容** | `dynamic:` 段的 YAML 结构（`environment.toolchain.*`、`environment.warehouse.*`、`package.*`）完全一致，解析代码可 100% 复用 — 只需检查 compiler 前缀区分运行时 |
-| **向后兼容** | 上层工程仍可回退读取 `lambda.yaml`，老项目无需改名 |
+// Self-registration function
+exports.register = (registry) => {
+  for (const [route, handler] of Object.entries(exports.routes)) {
+    registry.set(route, handler);
+  }
+};
+```
 
-`lambda-node.yaml` 示例（`dynamic:` 段，由上层工程使用）：
+The host framework loads and wires packages:
+
+```javascript
+const { useWarehouse, useNamespace, getPackage } = require("@aura-studio/dynamic-node");
+
+useWarehouse("/opt/warehouse", "s3://my-bucket");
+useNamespace("myorg");
+
+// Load multiple packages — each independently registers its handlers
+const routeRegistry = new Map();
+
+const modA = await getPackage("service-a", "v1");
+modA.register(routeRegistry);
+
+const modB = await getPackage("service-b", "v1");
+modB.register(routeRegistry);
+
+// Dispatch requests through the registry
+const handler = routeRegistry.get("/api/hello");
+const response = await handler(requestBody);
+```
+
+## 8. lambda-node.yaml Reference
 
 ```yaml
 dynamic:

@@ -1,11 +1,10 @@
-src/
-test/
+tests/
 doc/
+examples/
 .git/
 .github/
 .vscode/
 .gitignore
-tsconfig.json
-vitest.config.ts
+vitest.config.js
 coverage/
 *.tgz

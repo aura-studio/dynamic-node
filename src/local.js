@@ -1,26 +1,27 @@
 /**
- * local.ts — Local warehouse (counterpart of Go local.go)
+ * local.js — Local warehouse
  *
  * Checks whether a plugin package exists locally, extracts zip if needed,
  * and loads the module via require().
+ *
+ * Returns raw module.exports — no interface constraint.
  */
 
-import * as path from "path";
-import * as fs from "fs";
-import AdmZip from "adm-zip";
-import { toolchain } from "./toolchain";
-import { Tunnel } from "./tunnel";
+"use strict";
 
-export class Local {
-  private readonly localPath: string;
+const path = require("path");
+const fs = require("fs");
+const AdmZip = require("adm-zip");
+const { toolchain } = require("./toolchain");
 
-  constructor(localPath: string) {
-    this.localPath = localPath;
+class Local {
+  constructor(localPath) {
+    this._localPath = localPath;
   }
 
   /** Returns the local warehouse base path */
-  getPath(): string {
-    return this.localPath;
+  getPath() {
+    return this._localPath;
   }
 
   /**
@@ -31,8 +32,8 @@ export class Local {
    *
    * Also verifies the zip file exists and is non-zero.
    */
-  exists(name: string): boolean {
-    const dir = path.join(this.localPath, toolchain.toString(), name);
+  exists(name) {
+    const dir = path.join(this._localPath, toolchain.toString(), name);
     const zipFile = path.join(dir, `libnode_${name}.zip`);
 
     // Check zip file exists and is non-zero
@@ -76,10 +77,10 @@ export class Local {
 
   /**
    * Extracts the zip file for the given package name into the local directory.
-   * The original zip is retained (per R2.4).
+   * The original zip is retained.
    */
-  extract(name: string): void {
-    const dir = path.join(this.localPath, toolchain.toString(), name);
+  extract(name) {
+    const dir = path.join(this._localPath, toolchain.toString(), name);
     const zipFile = path.join(dir, `libnode_${name}.zip`);
 
     console.log(`[dynamic] extracting ${zipFile} to ${dir}`);
@@ -91,12 +92,10 @@ export class Local {
   /**
    * Loads a plugin module via require(), clearing the require cache first.
    *
-   * Supports two export patterns (counterpart of Go plugin.Lookup):
-   *   - module.exports.Tunnel = new MyTunnel()  (instance)
-   *   - module.exports.New    = () => new MyTunnel()  (factory function)
+   * Returns the raw module.exports.
    */
-  async load(name: string): Promise<Tunnel> {
-    const dir = path.join(this.localPath, toolchain.toString(), name);
+  async load(name) {
+    const dir = path.join(this._localPath, toolchain.toString(), name);
     const entryFile =
       toolchain.variant === "bundle"
         ? path.join(dir, "bundle.js")
@@ -110,21 +109,10 @@ export class Local {
       // resolve may fail if module not yet loaded; ignore
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require(entryFile);
 
-    // Pattern 1: exported Tunnel instance
-    if (mod.Tunnel) {
-      return mod.Tunnel as Tunnel;
-    }
-
-    // Pattern 2: exported New factory function
-    if (typeof mod.New === "function") {
-      return mod.New() as Tunnel;
-    }
-
-    throw new Error(
-      `dynamic: module "${name}" does not export Tunnel or New`
-    );
+    return mod;
   }
 }
+
+module.exports = { Local };

@@ -1,47 +1,39 @@
 /**
- * remote.ts — Remote download from S3 (counterpart of Go remote.go)
+ * remote.js — Remote download from S3
  *
  * Downloads libnode_<name>.zip from S3, writes atomically (tmp + rename),
  * then extracts the zip to the local warehouse directory.
  */
 
-import * as path from "path";
-import * as fs from "fs";
-import * as os from "os";
-import * as crypto from "crypto";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
-import type { Readable } from "stream";
-import { toolchain } from "./toolchain";
+"use strict";
 
-/** Sentinel error for "tunnel not found on S3" (counterpart of Go ErrTunnelNotExits) */
-export class TunnelNotExistError extends Error {
-  constructor(message?: string) {
-    super(message || "dynamic: tunnel not exists");
-    this.name = "TunnelNotExistError";
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
+const crypto = require("crypto");
+const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
+const { toolchain } = require("./toolchain");
+
+/** Sentinel error for "package not found on S3" */
+class PackageNotExistError extends Error {
+  constructor(message) {
+    super(message || "dynamic: package not exists");
+    this.name = "PackageNotExistError";
   }
 }
 
-export function isTunnelNotExist(err: unknown): boolean {
-  return err instanceof TunnelNotExistError;
+function isPackageNotExist(err) {
+  return err instanceof PackageNotExistError;
 }
 
 // ---------------------------------------------------------------------------
-// Remote interface (counterpart of Go Remote interface)
+// Factory
 // ---------------------------------------------------------------------------
 
-export interface Remote {
-  sync(name: string, localBasePath: string): Promise<void>;
-  getPath(): string;
-}
-
-// ---------------------------------------------------------------------------
-// Factory (counterpart of Go NewRemote)
-// ---------------------------------------------------------------------------
-
-export function createRemote(remotePath: string): Remote | null {
+function createRemote(remotePath) {
   if (!remotePath) return null;
 
-  let url: URL;
+  let url;
   try {
     url = new URL(remotePath);
   } catch {
@@ -58,32 +50,24 @@ export function createRemote(remotePath: string): Remote | null {
 }
 
 // ---------------------------------------------------------------------------
-// S3Remote (counterpart of Go S3Remote)
+// S3Remote
 // ---------------------------------------------------------------------------
 
-class S3Remote implements Remote {
-  private readonly bucket: string;
-
-  constructor(bucket: string) {
-    this.bucket = bucket;
+class S3Remote {
+  constructor(bucket) {
+    this._bucket = bucket;
   }
 
-  getPath(): string {
-    return `s3://${this.bucket}`;
+  getPath() {
+    return `s3://${this._bucket}`;
   }
 
   /**
    * Downloads the zip file for the named package from S3 into the local warehouse.
    *
    * S3 Key: <toolchain>/<name>/libnode_<name>.zip
-   *
-   * Steps:
-   *   1. Ensure local directory exists
-   *   2. Skip if file already exists and is non-zero
-   *   3. Download to a temp file, then atomic rename
-   *   4. If S3 object not found, throw TunnelNotExistError
    */
-  async sync(name: string, localBasePath: string): Promise<void> {
+  async sync(name, localBasePath) {
     const dir = path.join(localBasePath, toolchain.toString(), name);
 
     // Ensure directory
@@ -108,13 +92,13 @@ class S3Remote implements Remote {
     }
 
     console.log(
-      `[dynamic] downloading s3://${this.bucket}/${remoteKey} -> ${localFilePath}`
+      `[dynamic] downloading s3://${this._bucket}/${remoteKey} -> ${localFilePath}`
     );
 
     const startTime = Date.now();
 
     try {
-      await this.downloadFile(remoteKey, localFilePath);
+      await this._downloadFile(remoteKey, localFilePath);
     } catch (err) {
       // Clean up directory on failure
       try {
@@ -133,49 +117,45 @@ class S3Remote implements Remote {
   /**
    * Downloads a single file from S3 with atomic write (tmp + rename).
    */
-  private async downloadFile(
-    remoteKey: string,
-    localFilePath: string
-  ): Promise<void> {
+  async _downloadFile(remoteKey, localFilePath) {
     const client = new S3Client({});
 
     let response;
     try {
       response = await client.send(
         new GetObjectCommand({
-          Bucket: this.bucket,
+          Bucket: this._bucket,
           Key: remoteKey,
         })
       );
-    } catch (err: unknown) {
-      // S3 NoSuchKey or similar -> TunnelNotExistError
-      const errAny = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+    } catch (err) {
+      // S3 NoSuchKey or similar -> PackageNotExistError
       if (
-        errAny.name === "NoSuchKey" ||
-        errAny.$metadata?.httpStatusCode === 404
+        err.name === "NoSuchKey" ||
+        (err.$metadata && err.$metadata.httpStatusCode === 404)
       ) {
-        throw new TunnelNotExistError(
-          `dynamic: S3 object not found: s3://${this.bucket}/${remoteKey}`
+        throw new PackageNotExistError(
+          `dynamic: S3 object not found: s3://${this._bucket}/${remoteKey}`
         );
       }
       throw err;
     }
 
     if (!response.Body) {
-      throw new Error(`dynamic: empty response body for s3://${this.bucket}/${remoteKey}`);
+      throw new Error(`dynamic: empty response body for s3://${this._bucket}/${remoteKey}`);
     }
 
-    // Write to temp file first, then atomic rename (R1.5)
+    // Write to temp file first, then atomic rename
     const tmpFile = path.join(
       os.tmpdir(),
       `dynamic-node-${crypto.randomBytes(8).toString("hex")}.tmp`
     );
 
     try {
-      const body = response.Body as Readable;
+      const body = response.Body;
       const writeStream = fs.createWriteStream(tmpFile);
 
-      await new Promise<void>((resolve, reject) => {
+      await new Promise((resolve, reject) => {
         body.pipe(writeStream);
         writeStream.on("finish", resolve);
         writeStream.on("error", reject);
@@ -203,3 +183,5 @@ class S3Remote implements Remote {
     }
   }
 }
+
+module.exports = { PackageNotExistError, isPackageNotExist, createRemote };

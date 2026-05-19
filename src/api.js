@@ -1,26 +1,23 @@
 /**
- * api.ts — Public API (counterpart of Go api.go)
+ * api.js — Public API
  *
  * Top-level functions that the consumer of this library calls.
+ * Packages are loaded as raw JS modules — no interface constraint.
  */
 
-import { allowed } from "./allowed";
-import { warehouse } from "./warehouse";
-import { packageCenter } from "./package-center";
-import { Tunnel } from "./tunnel";
+"use strict";
+
+const { allowed } = require("./allowed");
+const { warehouse } = require("./warehouse");
+const { packageCenter } = require("./package-center");
 
 /**
  * Configures the warehouse with local and optional remote paths.
  *
- * @param local  - Local warehouse directory path (required if either param is non-empty)
- * @param remote - Remote warehouse URL, e.g. "s3://bucket" (optional)
- *
- * Cases (counterpart of Go UseWarehouse):
- *   Case 1: both empty → no warehouse, static packages only
- *   Case 2: local only → local warehouse, no remote sync
- *   Case 3: local + remote → full warehouse with S3 sync
+ * @param {string} local  - Local warehouse directory path
+ * @param {string} remote - Remote warehouse URL, e.g. "s3://bucket" (optional)
  */
-export function useWarehouse(local: string, remote: string): void {
+function useWarehouse(local, remote) {
   // Case 1: both empty
   if (!local && !remote) {
     return;
@@ -63,7 +60,7 @@ export function useWarehouse(local: string, remote: string): void {
 /**
  * Sets the package namespace.
  */
-export function useNamespace(namespace: string): void {
+function useNamespace(namespace) {
   if (!allowed.isKeyword(namespace)) {
     throw new Error("dynamic: invalid package namespace");
   }
@@ -73,7 +70,7 @@ export function useNamespace(namespace: string): void {
 /**
  * Sets the default package version used as fallback.
  */
-export function useDefaultVersion(version: string): void {
+function useDefaultVersion(version) {
   if (!allowed.isKeyword(version)) {
     throw new Error("dynamic: invalid default package version");
   }
@@ -82,45 +79,36 @@ export function useDefaultVersion(version: string): void {
 
 /**
  * Registers a static package (bypasses warehouse download).
+ * The module can be any object — it will be returned as-is by getPackage.
  */
-export async function registerPackage(
-  pkg: string,
-  version: string,
-  tunnel: Tunnel
-): Promise<void> {
+async function registerPackage(pkg, version, mod) {
   if (!allowed.isKeyword(pkg)) {
     throw new Error("dynamic: invalid package name");
   }
   if (!allowed.isKeyword(version)) {
     throw new Error("dynamic: invalid package version");
   }
-  await packageCenter.registerPackage(pkg, version, tunnel);
+  await packageCenter.registerPackage(pkg, version, mod);
 }
 
 /**
  * Gets (or lazily loads) a package by name and version.
- * Returns the Tunnel instance for invoking plugin functionality.
+ * Returns the raw module.exports from the loaded bundle.
  */
-export async function getPackage(
-  pkg: string,
-  version: string
-): Promise<Tunnel> {
+async function getPackage(pkg, version) {
   if (!allowed.isKeyword(pkg)) {
     throw new Error("dynamic: invalid package name");
   }
   if (!allowed.isKeyword(version)) {
     throw new Error("dynamic: invalid package version");
   }
-  return packageCenter.getTunnel(pkg, version);
+  return packageCenter.getPackage(pkg, version);
 }
 
 /**
  * Closes a loaded package, releasing resources.
  */
-export async function closePackage(
-  pkg: string,
-  version: string
-): Promise<void> {
+async function closePackage(pkg, version) {
   if (!allowed.isKeyword(pkg)) {
     throw new Error("dynamic: invalid package name");
   }
@@ -129,3 +117,12 @@ export async function closePackage(
   }
   await packageCenter.closePackage(pkg, version);
 }
+
+module.exports = {
+  useWarehouse,
+  useNamespace,
+  useDefaultVersion,
+  registerPackage,
+  getPackage,
+  closePackage,
+};

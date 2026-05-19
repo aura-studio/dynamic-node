@@ -1,53 +1,75 @@
 /**
  * example/basic/app.js
  *
- * 最简示例 — 静态注册 Tunnel，不走 S3 仓库。
+ * Basic example — statically register a module, no S3 warehouse.
  *
- * 安装方式（引用 GitHub 上的库）：
+ * Install:
  *   npm install github:aura-studio/dynamic-node
  *
- * 或在 package.json 中：
+ * Or in package.json:
  *   "dependencies": {
  *     "@aura-studio/dynamic-node": "github:aura-studio/dynamic-node"
  *   }
  */
 
-const { registerPackage, getPackage, closePackage, Template } = require("@aura-studio/dynamic-node");
+const { registerPackage, getPackage, closePackage } = require("@aura-studio/dynamic-node");
 
-// 实现自己的 Tunnel（继承 Template 空实现）
-class HelloTunnel extends Template {
-  meta() {
-    return "hello-tunnel-v1";
-  }
+// A module that exports handlers — no Tunnel interface needed.
+const helloModule = {
+  name: "hello-module-v1",
+  VERSION: "1.0.0",
 
-  async invoke(route, req) {
-    const request = JSON.parse(req);
-    console.log(`[HelloTunnel] routing: ${route}`);
-    console.log(`[HelloTunnel] request: ${JSON.stringify(request)}`);
+  // Routes this module handles
+  routes: {
+    "/greet": async (req) => {
+      const request = JSON.parse(req);
+      console.log(`[hello] greeting: ${request.name || "World"}`);
+      return JSON.stringify({
+        message: `Hello, ${request.name || "World"}!`,
+        module: "hello-module-v1",
+      });
+    },
+    "/status": async () => {
+      return JSON.stringify({ status: "ok", module: "hello-module-v1" });
+    },
+  },
 
-    return JSON.stringify({
-      message: `Hello from dynamic-node, ${request.name || "World"}!`,
-      route,
-      tunnel: this.meta(),
-    });
-  }
-}
+  // Self-registration function — the module registers its own routes
+  register(registry) {
+    for (const [route, handler] of Object.entries(this.routes)) {
+      registry.set(route, handler);
+    }
+    console.log(`[hello] registered ${Object.keys(this.routes).length} routes`);
+  },
+};
 
 // ============================================================
-// 不使用 S3 仓库，纯静态注册方式
+// No S3 warehouse — pure static registration
 // ============================================================
 async function main() {
-  // 注册一个静态包
-  await registerPackage("hello-world", "v1", new HelloTunnel());
+  // Register a static package
+  await registerPackage("hello-world", "v1", helloModule);
 
-  // 获取并调用
-  const tunnel = await getPackage("hello-world", "v1");
-  console.log("[main] tunnel meta:", tunnel.meta());
+  // Retrieve the module
+  const mod = await getPackage("hello-world", "v1");
+  console.log("[main] module name:", mod.name);
 
-  const resp = await tunnel.invoke("greet", JSON.stringify({ name: "developer" }));
+  // Use the module's handler directly
+  const resp = await mod.routes["/greet"](JSON.stringify({ name: "developer" }));
   console.log("[main] response:", resp);
 
-  // 关闭
+  // Or use the registration pattern with a route registry
+  const routeRegistry = new Map();
+  mod.register(routeRegistry);
+
+  // Dispatch a request via the registry
+  const handler = routeRegistry.get("/status");
+  if (handler) {
+    const statusResp = await handler();
+    console.log("[main] status:", statusResp);
+  }
+
+  // Close
   await closePackage("hello-world", "v1");
   console.log("[main] done");
 }

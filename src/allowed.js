@@ -1,16 +1,18 @@
 /**
- * allowed.ts — Input validation (counterpart of Go allowed.go)
+ * allowed.js — Input validation
  *
  * Validates keywords (namespace/package/version), file-system paths, and URLs.
  */
 
-export enum AllowedType {
-  Keyword = 0,
-  Path = 1,
-  URL = 2,
-}
+"use strict";
 
-const allowedPatterns: Record<AllowedType, RegExp> = {
+const AllowedType = Object.freeze({
+  Keyword: 0,
+  Path: 1,
+  URL: 2,
+});
+
+const allowedPatterns = {
   // Keyword: lowercase alphanumeric + hyphen, must start with alnum
   [AllowedType.Keyword]: /^[a-z0-9][a-z0-9-]*$/,
 
@@ -23,28 +25,28 @@ const allowedPatterns: Record<AllowedType, RegExp> = {
 };
 
 class Allowed {
-  match(t: AllowedType, s: string): boolean {
+  match(t, s) {
     const re = allowedPatterns[t];
     if (!re) return false;
     return re.test(s);
   }
 
-  isKeyword(s: string): boolean {
+  isKeyword(s) {
     return this.match(AllowedType.Keyword, s);
   }
 
-  isPath(s: string): boolean {
+  isPath(s) {
     return this.match(AllowedType.Path, s);
   }
 
-  isURL(s: string): boolean {
+  isURL(s) {
     return this.match(AllowedType.URL, s);
   }
 
   /**
    * Detect returns the first matched AllowedType in order: URL -> Path -> Keyword.
    */
-  detect(s: string): { type: AllowedType; matched: boolean } {
+  detect(s) {
     if (this.match(AllowedType.URL, s)) {
       return { type: AllowedType.URL, matched: true };
     }
@@ -58,5 +60,7 @@ class Allowed {
   }
 }
 
-/** Module-level singleton (counterpart of Go `var allowed = NewAllowed()`) */
-export const allowed = new Allowed();
+/** Module-level singleton */
+const allowed = new Allowed();
+
+module.exports = { allowed, AllowedType };

@@ -1,17 +1,14 @@
 {
   "name": "@aura-studio/dynamic-node",
-  "version": "0.1.0",
-  "description": "Node.js runtime library for dynamically loading plugin packages from S3, counterpart of github.com/aura-studio/dynamic",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "version": "0.2.0",
+  "description": "Node.js runtime library for dynamically loading plugin packages from S3",
+  "main": "src/index.js",
   "files": [
-    "dist"
+    "src"
   ],
   "scripts": {
-    "build": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "prepublishOnly": "npm run build"
+    "test:watch": "vitest"
   },
   "keywords": [
     "dynamic",
@@ -33,9 +30,6 @@
     "adm-zip": "^0.5.16"
   },
   "devDependencies": {
-    "@types/adm-zip": "^0.5.6",
-    "@types/node": "^20.17.0",
-    "typescript": "^5.7.0",
     "vitest": "^1.6.0"
   }
 }
