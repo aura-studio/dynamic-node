@@ -1,0 +1,14 @@
+{
+  "name": "dynamic-node-example",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Example: using @aura-studio/dynamic-node with GitHub reference",
+  "main": "app.js",
+  "scripts": {
+    "static": "node app.js",
+    "s3": "node app-s3.js"
+  },
+  "dependencies": {
+    "@aura-studio/dynamic-node": "github:aura-studio/dynamic-node"
+  }
+}
