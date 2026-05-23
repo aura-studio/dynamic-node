@@ -1,90 +1,108 @@
-# examples
+# dynamic-node examples
 
-This directory contains usage examples for `@aura-studio/dynamic-node`.
+These examples are manual verification scripts for `@aura-studio/dynamic-node`.
+They mirror the step-by-step style used by `dynamic-node-cli/examples`.
 
-## GitHub 引用方式
+Run one step at a time on PowerShell:
 
-在 `package.json` 中使用 GitHub 引用安装：
-
-```json
-{
-  "dependencies": {
-    "@aura-studio/dynamic-node": "github:aura-studio/dynamic-node"
-  }
-}
+```powershell
+powershell -ExecutionPolicy Bypass -File examples/scripts/01-smoke.ps1
+powershell -ExecutionPolicy Bypass -File examples/scripts/02-static-register.ps1
+powershell -ExecutionPolicy Bypass -File examples/scripts/03-local-bundle.ps1
 ```
 
-```bash
-npm install
+Run one step at a time on bash:
+
+```sh
+bash examples/scripts/01-smoke.sh
+bash examples/scripts/02-static-register.sh
+bash examples/scripts/03-local-bundle.sh
 ```
 
-版本锁定方式：
+Run all local checks:
 
-```json
-{
-  "dependencies": {
-    "@aura-studio/dynamic-node": "github:aura-studio/dynamic-node#v0.1.0"
-  }
-}
+```powershell
+powershell -ExecutionPolicy Bypass -File examples/scripts/99-run-all-local.ps1
 ```
 
-## 示例
+```sh
+bash examples/scripts/99-run-all-local.sh
+```
 
-### [`basic/`](basic/)
+Run the optional S3 check after preparing a remote package that exports
+`Tunnel` or `New`:
 
-| 文件 | 说明 |
+```sh
+DYNAMIC_NODE_EXAMPLE_REMOTE=s3://your-bucket \
+DYNAMIC_NODE_EXAMPLE_REMOTE_NAMESPACE=demo \
+DYNAMIC_NODE_EXAMPLE_REMOTE_PACKAGE=remote \
+DYNAMIC_NODE_EXAMPLE_REMOTE_VERSION=v1 \
+bash examples/scripts/08-remote-s3.sh
+```
+
+PowerShell:
+
+```powershell
+$env:DYNAMIC_NODE_EXAMPLE_REMOTE = "s3://your-bucket"
+$env:DYNAMIC_NODE_EXAMPLE_REMOTE_NAMESPACE = "demo"
+$env:DYNAMIC_NODE_EXAMPLE_REMOTE_PACKAGE = "remote"
+$env:DYNAMIC_NODE_EXAMPLE_REMOTE_VERSION = "v1"
+powershell -ExecutionPolicy Bypass -File examples/scripts/08-remote-s3.ps1
+```
+
+## Script Index
+
+| Script | Purpose |
 |---|---|
-| `app.js` | 最简示例 — 静态注册 Tunnel，不走仓库 |
-| `app-s3.js` | 完整示例 — 配置 S3 仓库，远程拉取插件 |
-| `app-toolchain.js` | 手动覆盖 toolchain 以匹配 S3 路径 |
+| `00-clean.sh` / `00-clean.ps1` | Remove generated example files. |
+| `01-smoke.sh` / `01-smoke.ps1` | Check public exports, toolchain overrides, and Template behavior. |
+| `02-static-register.sh` / `02-static-register.ps1` | Verify `registerPackage`, `getPackage`, `invoke`, `meta`, and `closePackage`. |
+| `03-local-bundle.sh` / `03-local-bundle.ps1` | Verify local warehouse loading for `bundle` variant with `exports.Tunnel`. |
+| `04-local-full.sh` / `04-local-full.ps1` | Verify local warehouse loading for `full` variant with `exports.New`. |
+| `05-namespace-default-version.sh` / `05-namespace-default-version.ps1` | Verify namespace isolation and default-version fallback. |
+| `06-validation-errors.sh` / `06-validation-errors.ps1` | Verify validation errors for invalid warehouse, namespace, package, and version values. |
+| `07-tunnel-symbols.sh` / `07-tunnel-symbols.ps1` | Verify `Tunnel`, `New`, and upper-case Go-style Tunnel methods. |
+| `08-remote-s3.sh` / `08-remote-s3.ps1` | Optional real S3 sync/load check. |
+| `99-run-all-local.sh` / `99-run-all-local.ps1` | Run all local scripts. |
+| `99-run-all-with-s3.sh` / `99-run-all-with-s3.ps1` | Run local scripts and the optional S3 script. |
 
-### [`lambda-node/`](lambda-node/)
+## Generated Files
 
-| 文件 | 说明 |
-|---|---|
-| `bootstrap.js` | Lambda 启动入口 — 解析 `lambda-node.yaml`，初始化 dynamic-node，预加载包 |
-| `lambda-node.yaml` | 配置文件 — 字段结构与 `lambda.yaml` 一致，`compiler`/`variant` 使用 Node.js 语义 |
+Examples write generated warehouse packages under:
 
-### YAML → API 映射
-
-```yaml
-# lambda-node.yaml
-dynamic:
-  environment:
-    toolchain:           # → toolchain.setOS/setArch/setCompiler/setVariant
-      os: darwin15.7.3
-      arch: amd64v1
-      compiler: node25.8.0
-      variant: bundle
-    warehouse:           # → useWarehouse(local, remote)
-      local: /tmp/warehouse
-      remote: s3://bucket
-  package:
-    namespace: myteam    # → useNamespace("myteam")
-    defaultVersion: v1   # → useDefaultVersion("v1")
-    preload:             # → getPackage("hello", "v1")
-      - package: hello
-        version: v1
+```text
+examples/.tmp/warehouse
 ```
 
-### 环境变量覆盖
+Override it with:
 
-```bash
-DYNAMIC_OS=ubuntu24.04 \
-DYNAMIC_ARCH=amd64 \
-DYNAMIC_COMPILER=node22.11.0 \
-DYNAMIC_VARIANT=bundle \
-AWS_PROFILE=aws-3 \
-  node app-s3.js
+```sh
+DYNAMIC_NODE_EXAMPLE_WAREHOUSE=/tmp/dynamic-node-example bash examples/scripts/03-local-bundle.sh
 ```
 
-### S3 路径说明
+## Package Contract
 
+Every dynamically loaded package must export one of:
+
+```js
+exports.Tunnel = {
+  init() {},
+  async invoke(route, request) {},
+  meta() { return ""; },
+  close() {},
+};
 ```
-s3://<bucket>/<os>_<arch>_<compiler>_<variant>/<namespace>_<package>_<version>/libnode_<namespace>_<package>_<version>.zip
 
-例:
-  s3://dynamic-loader-code-255491288557/darwin15.7.3_amd64v1_node25.8.0_bundle/hotscripts_hello_v1/libnode_hotscripts_hello_v1.zip
+or:
+
+```js
+exports.New = () => ({
+  init() {},
+  async invoke(route, request) {},
+  meta() { return ""; },
+  close() {},
+});
 ```
 
-此路径由 `dynamic-node-cli` 打包上传时生成，`dynamic-node` 运行时按相同规则构造 Key 进行下载。
+Upper-case Go-style methods (`Init`, `Invoke`, `Meta`, `Close`) are also
+accepted.

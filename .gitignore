@@ -4,3 +4,4 @@ node_modules/
 coverage/
 .env
 tests/__fixtures__/bundle.js
+examples/.tmp/
