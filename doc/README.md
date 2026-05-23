@@ -1,100 +1,68 @@
 # dynamic-node
 
-## 概述
+`dynamic-node` is the Node.js counterpart of Go `dynamic`.
 
-`dynamic-node` 是一个 Node.js 运行时库，用于从 S3 远程仓库动态加载插件包。
+It loads versioned packages from a local/S3 warehouse and resolves them to a
+Tunnel-like object. The public runtime shape is intentionally close to Go:
 
-## 核心原则
+- `useWarehouse(local, remote)`
+- `useNamespace(namespace)`
+- `useDefaultVersion(version)`
+- `registerPackage(pkg, version, tunnel)`
+- `getPackage(pkg, version)`
+- `closePackage(pkg, version)`
 
-**dynamic-node 不关心也不要求任何特定导出格式。** bundle 想导出什么就导出什么。
+See [API reference](./api.md) for details.
 
-## 使用方式
+## Package Contract
 
-### 配置仓库
-
-```js
-const { useWarehouse, useNamespace, getPackage } = require("@aura-studio/dynamic-node");
-
-useWarehouse("/opt/warehouse", "s3://my-bucket");
-useNamespace("myorg");
-```
-
-### 加载 bundle
+Warehouse packages should export one of these symbols:
 
 ```js
-const mod = await getPackage("hello", "v1");
-// mod 就是 bundle.js 的 module.exports，原样返回，无任何包装
+exports.Tunnel = service.new(app);
 ```
 
-### 加载多个 bundle
+or:
 
 ```js
-const modA = await getPackage("service-a", "v1");
-const modB = await getPackage("service-b", "v2");
-// 互不冲突，各自独立
+exports.New = () => wire.new(app);
 ```
 
-重复加载同一个 `pkg + version`，后加载的覆盖前者。
-
-### bundle.js 示例
-
-bundle.js 可以导出任意内容，取决于上层框架的需求。例如导出一个 `(req, res) => {}` 函数：
+The returned object must implement the Tunnel methods:
 
 ```js
-// bundle.js
-module.exports = async (req, res) => {
-  res.statusCode = 200;
-  res.end(JSON.stringify({ message: "hello" }));
-};
+{
+  init() {},
+  invoke(route, request) {},
+  meta() {},
+  close() {}
+}
 ```
 
-加载后直接调用：
+Upper-case Go-style method names (`Init`, `Invoke`, `Meta`, `Close`) are also
+accepted.
 
-```js
-const handler = await getPackage("hello", "v1");
-// handler 就是 async (req, res) => { ... }
+## Warehouse Layout
+
+`dynamic-node-cli` builds packages into:
+
+```text
+<warehouse>/<os>_<arch>_<compiler>_<variant>/<namespace>_<package>_<version>/libnode_<name>.zip
 ```
 
-也可以导出对象：
+For the `bundle` variant, the extracted package must contain `bundle.js`.
+For non-bundle variants, Node resolves the extracted directory with normal
+`index.js` / `package.json#main` rules.
 
-```js
-// bundle.js
-exports.basePath = "/api/hello";
+## Notes
 
-exports.handler = async (event, context) => {
-  return { statusCode: 200, body: { message: "ok" } };
-};
+Node cannot replicate Go `plugin.Open` exactly. The Node implementation uses
+`require()` for CommonJS packages and clears the top-level require cache entry
+before each local load. This is not a full unload of nested dependencies.
+
+S3 integration tests are real remote tests and are disabled by default. Enable
+them with:
+
+```sh
+DYNAMIC_NODE_RUN_S3_TESTS=1 npm test
 ```
-
-加载后按需使用：
-
-```js
-const mod = await getPackage("hello", "v1");
-console.log(mod.basePath); // "/api/hello"
-```
-
-## API
-
-| 函数 | 说明 |
-|---|---|
-| `useWarehouse(local, remote)` | 配置本地仓库路径和远程 S3 地址 |
-| `useNamespace(namespace)` | 设置包命名空间 |
-| `useDefaultVersion(version)` | 设置默认版本，指定版本找不到时回退 |
-| `registerPackage(pkg, version, mod)` | 静态注册模块，不走 warehouse |
-| `getPackage(pkg, version)` | 获取或懒加载模块，返回 `module.exports` |
-| `closePackage(pkg, version)` | 从内存缓存中移除 |
-
-### 辅助导出
-
-| 导出 | 说明 |
-|---|---|
-| `toolchain` | OS/Arch/Compiler 检测，支持 `setOS()` 等覆盖 |
-| `PackageNotExistError` | S3 上找不到包时抛出的错误 |
-| `isPackageNotExist(err)` | 判断错误是否为 `PackageNotExistError` |
-
-## 多包共存
-
-- 每个包由 `(namespace, pkg, version)` 唯一标识
-- 多个包可同时加载，互不干扰
-- 关闭一个包不影响其他包
-- 相同 key 重复加载，后者覆盖前者

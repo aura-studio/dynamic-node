@@ -61,7 +61,18 @@ describe("API (integration)", () => {
 
       useNamespace("myorg");
 
-      const mod = { name: "myorg-app", version: "1.0" };
+      const mod = {
+        name: "myorg-app",
+        version: "1.0",
+        init() {},
+        async invoke() {
+          return "myorg-app";
+        },
+        meta() {
+          return "";
+        },
+        close() {},
+      };
       await registerPackage("nsapp", "v1", mod);
 
       const result = await getPackage("nsapp", "v1");
@@ -72,7 +83,17 @@ describe("API (integration)", () => {
       const { useDefaultVersion, registerPackage, getPackage } = require("../src/api");
 
       useDefaultVersion("stable");
-      const mod = { name: "stable-version" };
+      const mod = {
+        name: "stable-version",
+        init() {},
+        async invoke() {
+          return "stable-version";
+        },
+        meta() {
+          return "";
+        },
+        close() {},
+      };
       await registerPackage("dfapp", "stable", mod);
 
       const result = await getPackage("dfapp", "latest");
@@ -84,7 +105,20 @@ describe("API (integration)", () => {
     it("full register -> get -> close lifecycle", async () => {
       const { registerPackage, getPackage, closePackage } = require("../src/api");
 
-      const mod = { name: "lifecycle-test", handler: async () => "response" };
+      const mod = {
+        name: "lifecycle-test",
+        init() {},
+        async invoke() {
+          return "response";
+        },
+        async handler() {
+          return "response";
+        },
+        meta() {
+          return "";
+        },
+        close() {},
+      };
       await registerPackage("lifecycle", "v1", mod);
 
       const result = await getPackage("lifecycle", "v1");
@@ -138,8 +172,21 @@ describe("API (integration)", () => {
     function makeNamedBundle(name) {
       return `
 exports.name = "${name}";
-exports.handler = async (route, req) => {
+async function handler(route, req) {
   return JSON.stringify({ module: "${name}", route, req: JSON.parse(req) });
+}
+exports.handler = handler;
+exports.Tunnel = {
+  name: "${name}",
+  handler,
+  init() {},
+  async invoke(route, req) {
+    return handler(route, req);
+  },
+  meta() {
+    return JSON.stringify({ name: "${name}" });
+  },
+  close() {},
 };
 `;
     }
@@ -249,7 +296,18 @@ exports.handler = async (route, req) => {
       useNamespace("mixed");
       useWarehouse(localBase, "");
 
-      const staticMod = { name: "static-module", greet: () => "hello" };
+      const staticMod = {
+        name: "static-module",
+        greet: () => "hello",
+        init() {},
+        async invoke() {
+          return "hello";
+        },
+        meta() {
+          return "";
+        },
+        close() {},
+      };
       await registerPackage("static-pkg", "v1", staticMod);
 
       const dynamicMod = await getPackage("dynamic-pkg", "v1");
@@ -263,7 +321,10 @@ exports.handler = async (route, req) => {
     });
   });
 
-  describe("S3 integration (full flow)", () => {
+  const describeS3 =
+    process.env.DYNAMIC_NODE_RUN_S3_TESTS === "1" ? describe : describe.skip;
+
+  describeS3("S3 integration (full flow)", () => {
     it("downloads, extracts, and loads from S3", async () => {
       const { useWarehouse, useNamespace, useDefaultVersion, getPackage } = require("../src/api");
       const localBase = path.join(TMP_ROOT, "api-s3-full");

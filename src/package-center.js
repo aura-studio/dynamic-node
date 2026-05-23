@@ -1,31 +1,41 @@
-/**
- * package-center.js — PackageCenter: namespace + version management + memory cache
- *
- * Manages loaded packages with a two-level cache:
- *   Level 1: PackageCenter.packages (in-memory Map)
- *   Level 2: Warehouse (local disk + S3 remote)
- *
- * Each package is identified by (namespace, pkg, version).
- * Multiple packages can coexist independently.
- * If the same pkg+version is loaded again, the later load overwrites the earlier one.
- */
-
 "use strict";
 
-const { warehouse } = require("./warehouse");
+const { tunnelCenter } = require("./tunnel-center");
+const { callTunnelClose } = require("./tunnel");
 
 const NAMESPACE_DEFAULT = "default";
 const VERSION_DEFAULT = "default";
+const VERSION_LATEST = "latest";
 
-// ---------------------------------------------------------------------------
-// PackageCenter
-// ---------------------------------------------------------------------------
+class DynamicIndex {
+  constructor(namespace, pkg, version) {
+    this.namespace = namespace;
+    this.package = pkg;
+    this.version = version;
+  }
+
+  toString() {
+    return [this.namespace, this.package, this.version].join("_");
+  }
+}
+
+class Dynamic {
+  constructor(index, tunnel) {
+    this.index = index;
+    this.tunnel = tunnel;
+  }
+
+  getTunnel() {
+    return this.tunnel;
+  }
+}
 
 class PackageCenter {
-  constructor() {
+  constructor(center = tunnelCenter) {
     this._namespace = NAMESPACE_DEFAULT;
     this._defaultVersion = VERSION_DEFAULT;
-    this._packages = new Map();
+    this._tunnelCenter = center;
+    this._dynamics = new Map();
   }
 
   useNamespace(ns) {
@@ -36,60 +46,42 @@ class PackageCenter {
     this._defaultVersion = v;
   }
 
-  /**
-   * Build the cache key from namespace, pkg, and version.
-   */
-  _key(pkg, version) {
-    return `${this._namespace}_${pkg}_${version}`;
+  _index(pkg, version) {
+    return new DynamicIndex(this._namespace, pkg, version);
   }
 
-  /**
-   * Gets a loaded module for the given package + version.
-   *
-   * Resolution order:
-   *   1. Memory cache with provided version
-   *   2. Warehouse load with provided version
-   *   3. Memory cache with default version
-   *   4. Warehouse load with default version
-   *   5. Error if neither found
-   */
-  async getPackage(pkg, version) {
-    // --- Try provided version ---
-    const key = this._key(pkg, version);
+  async getTunnel(pkg, version) {
+    const providedIndex = this._index(pkg, version);
+    const providedKey = providedIndex.toString();
 
-    // Level 1: memory cache
-    if (this._packages.has(key)) {
-      return this._packages.get(key);
+    if (this._dynamics.has(providedKey)) {
+      return this._dynamics.get(providedKey).getTunnel();
     }
 
-    // Level 2: Warehouse (local disk + S3)
     try {
-      const mod = await warehouse.load(key);
-      this._packages.set(key, mod);
-      return mod;
+      const tunnel = await this._tunnelCenter.getTunnel(providedKey);
+      this._cache(pkg, version, tunnel);
+      return tunnel;
     } catch (err) {
-      console.log(`[dynamic] load package ${key} failed: ${err}`);
+      console.log(`[dynamic] get tunnel ${providedKey} failed: ${err}`);
     }
 
-    // --- Try default version ---
-    const defaultKey = this._key(pkg, this._defaultVersion);
+    const defaultIndex = this._index(pkg, this._defaultVersion);
+    const defaultKey = defaultIndex.toString();
 
-    // Level 1: memory cache (default version)
-    if (this._packages.has(defaultKey)) {
-      const mod = this._packages.get(defaultKey);
-      // Back-fill the provided version into cache
-      this._packages.set(key, mod);
-      return mod;
+    if (this._dynamics.has(defaultKey)) {
+      const tunnel = this._dynamics.get(defaultKey).getTunnel();
+      this._cache(pkg, version, tunnel);
+      return tunnel;
     }
 
-    // Level 2: Warehouse (default version)
     try {
-      const mod = await warehouse.load(defaultKey);
-      this._packages.set(key, mod);
-      this._packages.set(defaultKey, mod);
-      return mod;
+      const tunnel = await this._tunnelCenter.getTunnel(defaultKey);
+      this._cache(pkg, version, tunnel);
+      this._cache(pkg, this._defaultVersion, tunnel);
+      return tunnel;
     } catch (err) {
-      console.log(`[dynamic] load package ${defaultKey} failed: ${err}`);
+      console.log(`[dynamic] get tunnel ${defaultKey} failed: ${err}`);
     }
 
     throw new Error(
@@ -98,25 +90,47 @@ class PackageCenter {
     );
   }
 
-  /**
-   * Closes a package, removing it from the cache.
-   */
-  async closePackage(pkg, version) {
-    const key = this._key(pkg, version);
-    this._packages.delete(key);
+  async getPackage(pkg, version) {
+    return this.getTunnel(pkg, version);
   }
 
-  /**
-   * Registers a static package directly (bypasses warehouse).
-   * If the same pkg+version already exists, it is overwritten.
-   */
-  async registerPackage(pkg, version, mod) {
-    const key = this._key(pkg, version);
-    this._packages.set(key, mod);
+  async closePackage(pkg, version) {
+    const index = this._index(pkg, version);
+    const key = index.toString();
+    const dynamic = this._dynamics.get(key);
+    if (!dynamic) {
+      return;
+    }
+
+    await callTunnelClose(dynamic.getTunnel());
+    this._dynamics.delete(key);
+  }
+
+  async registerPackage(pkg, version, tunnelLike) {
+    const index = this._index(pkg, version);
+    const tunnel = await this._tunnelCenter.registerTunnel(
+      index.toString(),
+      tunnelLike
+    );
+    this._dynamics.set(index.toString(), new Dynamic(index, tunnel));
+    return tunnel;
+  }
+
+  _cache(pkg, version, tunnel) {
+    const index = this._index(pkg, version);
+    this._dynamics.set(index.toString(), new Dynamic(index, tunnel));
+    return index;
   }
 }
 
-/** Module-level singleton */
 const packageCenter = new PackageCenter();
 
-module.exports = { PackageCenter, packageCenter };
+module.exports = {
+  NAMESPACE_DEFAULT,
+  VERSION_DEFAULT,
+  VERSION_LATEST,
+  DynamicIndex,
+  Dynamic,
+  PackageCenter,
+  packageCenter,
+};

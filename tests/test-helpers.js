@@ -44,8 +44,22 @@ function makeHandlerBundle(name = "test-module") {
 const moduleName = "${name}";
 exports.name = moduleName;
 exports.VERSION = "1.0.0";
-exports.handler = async (route, req) => {
+async function handler(route, req) {
   return JSON.stringify({ module: moduleName, route, req: JSON.parse(req) });
+}
+exports.handler = handler;
+exports.Tunnel = {
+  name: moduleName,
+  VERSION: "1.0.0",
+  handler,
+  init() {},
+  async invoke(route, req) {
+    return handler(route, req);
+  },
+  meta() {
+    return JSON.stringify({ name: moduleName, version: "1.0.0" });
+  },
+  close() {},
 };
 exports.register = (registry) => {
   registry.set("/" + moduleName, exports.handler);

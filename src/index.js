@@ -1,37 +1,62 @@
-/**
- * dynamic-node — Main entry point
- *
- * Re-exports the public API and utilities for consumers.
- *
- * Packages are loaded as raw JS modules. There is no Tunnel abstraction —
- * each package independently exports whatever it needs (handlers, routes,
- * classes, etc.) and registers with the host framework on its own.
- */
-
 "use strict";
 
 const api = require("./api");
 const { toolchain } = require("./toolchain");
 const { PackageNotExistError, isPackageNotExist } = require("./remote");
 const { allowed, AllowedType } = require("./allowed");
+const tunnel = require("./tunnel");
+const { TunnelCenter, tunnelCenter } = require("./tunnel-center");
+const {
+  Dynamic,
+  DynamicIndex,
+  NAMESPACE_DEFAULT,
+  PackageCenter,
+  VERSION_DEFAULT,
+  VERSION_LATEST,
+  packageCenter,
+} = require("./package-center");
 
 module.exports = {
-  // Public API functions
   useWarehouse: api.useWarehouse,
   useNamespace: api.useNamespace,
   useDefaultVersion: api.useDefaultVersion,
   registerPackage: api.registerPackage,
   getPackage: api.getPackage,
+  getTunnel: api.getTunnel,
   closePackage: api.closePackage,
 
-  // Toolchain (for advanced consumers who need to inspect/override)
-  toolchain,
+  UseWarehouse: api.useWarehouse,
+  UseNamespace: api.useNamespace,
+  UseDefaultVersion: api.useDefaultVersion,
+  RegisterPackage: api.registerPackage,
+  GetPackage: api.getPackage,
+  GetTunnel: api.getTunnel,
+  ClosePackage: api.closePackage,
 
-  // Error types
+  toolchain,
   PackageNotExistError,
   isPackageNotExist,
-
-  // Input validation (for advanced consumers)
   allowed,
   AllowedType,
+
+  Template: tunnel.Template,
+  Tunnel: tunnel.Tunnel,
+  TunnelNode: tunnel.TunnelNode,
+  isTunnelNode: tunnel.isTunnelNode,
+  assertTunnelNode: tunnel.assertTunnelNode,
+  callTunnelInit: tunnel.callTunnelInit,
+  callTunnelInvoke: tunnel.callTunnelInvoke,
+  callTunnelMeta: tunnel.callTunnelMeta,
+  callTunnelClose: tunnel.callTunnelClose,
+  resolveTunnelExport: tunnel.resolveTunnelExport,
+
+  TunnelCenter,
+  tunnelCenter,
+  Dynamic,
+  DynamicIndex,
+  PackageCenter,
+  packageCenter,
+  NAMESPACE_DEFAULT,
+  VERSION_DEFAULT,
+  VERSION_LATEST,
 };

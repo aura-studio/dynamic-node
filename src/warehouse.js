@@ -4,7 +4,8 @@
  * Local-first strategy: if the package exists locally, load it directly.
  * Otherwise, sync from remote, extract, then load.
  *
- * Returns raw module exports (no interface constraint).
+ * Returns the loaded module exports. TunnelCenter resolves those exports to a
+ * TunnelNode using the Node equivalent of Go's Tunnel/New plugin symbols.
  */
 
 "use strict";
@@ -36,7 +37,7 @@ class Warehouse {
    *   4. Check local exists again -> load
    *   5. If still not found -> error
    *
-   * Returns raw module.exports from the loaded bundle.
+   * Returns module.exports from the loaded bundle.
    */
   async load(name) {
     console.log(`[dynamic] load warehouse package ${name}...`);

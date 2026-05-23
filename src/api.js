@@ -1,29 +1,14 @@
-/**
- * api.js — Public API
- *
- * Top-level functions that the consumer of this library calls.
- * Packages are loaded as raw JS modules — no interface constraint.
- */
-
 "use strict";
 
 const { allowed } = require("./allowed");
 const { warehouse } = require("./warehouse");
 const { packageCenter } = require("./package-center");
 
-/**
- * Configures the warehouse with local and optional remote paths.
- *
- * @param {string} local  - Local warehouse directory path
- * @param {string} remote - Remote warehouse URL, e.g. "s3://bucket" (optional)
- */
 function useWarehouse(local, remote) {
-  // Case 1: both empty
   if (!local && !remote) {
     return;
   }
 
-  // Case 2: local only
   if (local && !remote) {
     if (!allowed.isPath(local)) {
       console.log(`[dynamic] invalid local warehouse path: ${local}`);
@@ -34,7 +19,6 @@ function useWarehouse(local, remote) {
     return;
   }
 
-  // Case 3: local + remote
   if (local && remote) {
     if (!allowed.isPath(local)) {
       console.log(`[dynamic] invalid local warehouse path: ${local}`);
@@ -50,16 +34,12 @@ function useWarehouse(local, remote) {
     return;
   }
 
-  // Invalid: remote without local
   console.log(
     `[dynamic] invalid warehouse configuration: local=${local}, remote=${remote}`
   );
   throw new Error("dynamic: invalid warehouse configuration");
 }
 
-/**
- * Sets the package namespace.
- */
 function useNamespace(namespace) {
   if (!allowed.isKeyword(namespace)) {
     throw new Error("dynamic: invalid package namespace");
@@ -67,9 +47,6 @@ function useNamespace(namespace) {
   packageCenter.useNamespace(namespace);
 }
 
-/**
- * Sets the default package version used as fallback.
- */
 function useDefaultVersion(version) {
   if (!allowed.isKeyword(version)) {
     throw new Error("dynamic: invalid default package version");
@@ -77,24 +54,16 @@ function useDefaultVersion(version) {
   packageCenter.useDefaultVersion(version);
 }
 
-/**
- * Registers a static package (bypasses warehouse download).
- * The module can be any object — it will be returned as-is by getPackage.
- */
-async function registerPackage(pkg, version, mod) {
+async function registerPackage(pkg, version, tunnel) {
   if (!allowed.isKeyword(pkg)) {
     throw new Error("dynamic: invalid package name");
   }
   if (!allowed.isKeyword(version)) {
     throw new Error("dynamic: invalid package version");
   }
-  await packageCenter.registerPackage(pkg, version, mod);
+  return packageCenter.registerPackage(pkg, version, tunnel);
 }
 
-/**
- * Gets (or lazily loads) a package by name and version.
- * Returns the raw module.exports from the loaded bundle.
- */
 async function getPackage(pkg, version) {
   if (!allowed.isKeyword(pkg)) {
     throw new Error("dynamic: invalid package name");
@@ -105,9 +74,10 @@ async function getPackage(pkg, version) {
   return packageCenter.getPackage(pkg, version);
 }
 
-/**
- * Closes a loaded package, releasing resources.
- */
+async function getTunnel(pkg, version) {
+  return getPackage(pkg, version);
+}
+
 async function closePackage(pkg, version) {
   if (!allowed.isKeyword(pkg)) {
     throw new Error("dynamic: invalid package name");
@@ -124,5 +94,6 @@ module.exports = {
   useDefaultVersion,
   registerPackage,
   getPackage,
+  getTunnel,
   closePackage,
 };

@@ -11,7 +11,10 @@ const {
 
 const TMP_ROOT = path.join(os.tmpdir(), "dynamic-node-test-remote");
 
-describe("Remote (S3 integration)", () => {
+const describeS3 =
+  process.env.DYNAMIC_NODE_RUN_S3_TESTS === "1" ? describe : describe.skip;
+
+describeS3("Remote (S3 integration)", () => {
   beforeAll(() => {
     overrideToolchain();
     fs.mkdirSync(TMP_ROOT, { recursive: true });

@@ -11,6 +11,8 @@ const {
 } = require("./test-helpers");
 
 const TMP_ROOT = path.join(os.tmpdir(), "dynamic-node-test-warehouse");
+const describeS3 =
+  process.env.DYNAMIC_NODE_RUN_S3_TESTS === "1" ? describe : describe.skip;
 
 function setupLocalPackage(localBase, name, bundleContent) {
   const dir = path.join(
@@ -82,7 +84,7 @@ describe("Warehouse", () => {
     });
   });
 
-  describe("load (local + remote integration)", () => {
+  describeS3("load (local + remote integration)", () => {
     it("loads actual package from S3 via warehouse", async () => {
       const localBase = path.join(TMP_ROOT, "s3-integration");
       fs.mkdirSync(localBase, { recursive: true });
