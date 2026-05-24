@@ -24,6 +24,16 @@ wire-app    x full   -> wire-full
 `dynamic-node-cli` builds the zip artifacts. `dynamic-node` then loads them from
 the local warehouse or from S3.
 
+The service and wire steps start temporary `http.createServer(...)` instances
+and print the response bodies for all four wrapper modes:
+
+```text
+HTTP service-bundle response: ...
+HTTP service-full response: ...
+HTTP wire-bundle response: ...
+HTTP wire-full response: ...
+```
+
 ## Quick Local Run
 
 From the repository root:

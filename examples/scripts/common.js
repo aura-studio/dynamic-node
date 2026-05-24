@@ -305,6 +305,63 @@ async function invokeService(tunnel, route, payload) {
   return decodeEnvelope(response);
 }
 
+async function invokeServiceHTTP(tunnel, targetPackage) {
+  const server = http.createServer(async (req, res) => {
+    try {
+      const bodyText = await readBody(req);
+      const payload = bodyText ? JSON.parse(bodyText) : {};
+      const url = new URL(req.url, "http://dynamic-node.local");
+      const responseEnvelope = await callTunnel(
+        tunnel,
+        "invoke",
+        url.pathname,
+        encodeEnvelope(payload, {
+          method: req.method,
+          url: req.url,
+          target: targetPackage,
+        }),
+      );
+      const envelope = decodeEnvelope(responseEnvelope);
+
+      res.statusCode = envelope.meta.Error ? 500 : 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({
+        mode: targetPackage,
+        meta: envelope.meta,
+        payload: envelope.payload,
+      }));
+    } catch (err) {
+      res.statusCode = 500;
+      res.setHeader("content-type", "text/plain");
+      res.end(err && err.stack ? err.stack : String(err));
+    }
+  });
+
+  try {
+    const baseUrl = await listen(server);
+    const response = await fetch(`${baseUrl}/greet-user`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-dynamic-node-target": targetPackage,
+      },
+      body: JSON.stringify({ name: targetPackage }),
+    });
+    const text = await response.text();
+    console.log(`HTTP ${targetPackage} response: ${text}`);
+    const body = JSON.parse(text);
+
+    assert.equal(response.status, 200);
+    assert.equal(body.mode, targetPackage);
+    assert.equal(body.meta.handler, "greetUser");
+    assert.equal(body.payload.message, `hello ${targetPackage}`);
+    assert.equal(body.payload.route, "/greet-user");
+    return body;
+  } finally {
+    await closeServer(server);
+  }
+}
+
 async function callTunnel(tunnel, lower, ...args) {
   const upper = lower[0].toUpperCase() + lower.slice(1);
   const fn = typeof tunnel[lower] === "function" ? tunnel[lower] : tunnel[upper];
@@ -345,14 +402,25 @@ async function invokeWire(tunnel, targetPackage) {
     const response = await fetch(`${baseUrl}/hello?case=${encodeURIComponent(targetPackage)}`, {
       headers: { "x-dynamic-node-target": targetPackage },
     });
-    const body = await response.json();
+    const text = await response.text();
+    console.log(`HTTP ${targetPackage} response: ${text}`);
+    const body = JSON.parse(text);
     assert.equal(response.status, 200);
     assert.equal(body.message, "hello wire-node");
     assert.equal(body.method, "GET");
     assert.equal(body.target, targetPackage);
+    return body;
   } finally {
     await closeServer(server);
   }
+}
+
+async function readBody(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 async function listen(server) {
@@ -377,6 +445,7 @@ function removePath(targetPath) {
 
 function cleanGenerated(ctx) {
   for (const target of [
+    path.join(ctx.examplesDir, ".tmp"),
     ctx.warehouseDir,
     ctx.configPath,
     path.join(ctx.examplesDir, ".npm-cache"),
@@ -642,6 +711,7 @@ module.exports = {
   clearRuntimePackages,
   invokeJSON,
   invokeService,
+  invokeServiceHTTP,
   invokeWire,
   callTunnel,
   removePath,

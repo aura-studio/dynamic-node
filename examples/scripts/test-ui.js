@@ -19,6 +19,7 @@ const steps = [
   ["07-validation-errors", "Verify validation errors"],
   ["08-remote-s3", "Push/load through S3 or local MinIO"],
   ["99-run-all-local", "Run all local steps"],
+  ["99-run-all-with-s3", "Run all steps with S3"],
   ["99-run-all-docker-s3", "Run all steps with Docker MinIO"],
 ];
 
@@ -112,18 +113,31 @@ function renderPage() {
   </main>
   <script>
     const id = Math.random().toString(16).slice(2);
+    let firstOpen = false;
     const log = document.querySelector("#log");
-    const events = new EventSource("/events?id=" + id);
-    events.addEventListener("out", (event) => {
-      const data = JSON.parse(event.data);
-      log.textContent += data.text;
-      log.scrollTop = log.scrollHeight;
-    });
-    events.addEventListener("done", (event) => {
-      const data = JSON.parse(event.data);
-      log.textContent += "\\n[exit " + data.code + "] " + data.step + "\\n";
-      log.scrollTop = log.scrollHeight;
-    });
+    function connect() {
+      const events = new EventSource("/events?id=" + id);
+      events.addEventListener("open", () => {
+        if (firstOpen) location.reload();
+        firstOpen = true;
+      });
+      events.addEventListener("out", (event) => {
+        const data = JSON.parse(event.data);
+        log.textContent += data.text;
+        log.scrollTop = log.scrollHeight;
+      });
+      events.addEventListener("done", (event) => {
+        const data = JSON.parse(event.data);
+        log.textContent += "\\n[exit " + data.code + "] " + data.step + "\\n";
+        log.scrollTop = log.scrollHeight;
+      });
+      events.addEventListener("error", () => {
+        events.close();
+        setTimeout(connect, 2000);
+      });
+      return events;
+    }
+    connect();
     document.querySelectorAll("button[data-step]").forEach((button) => {
       button.addEventListener("click", async () => {
         const step = button.dataset.step;
