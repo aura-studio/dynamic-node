@@ -8,7 +8,12 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:examples": "node examples/scripts/99-run-all-local.js",
+    "test:examples:s3": "node examples/scripts/99-run-all-with-s3.js",
+    "test:examples:s3:docker": "node examples/scripts/99-run-all-docker-s3.js",
+    "examples:web": "node examples/scripts/test-ui.js",
+    "test:all": "npm test && npm run test:examples"
   },
   "keywords": [
     "dynamic",

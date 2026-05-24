@@ -16,15 +16,8 @@ class Local {
 
   exists(name) {
     const dir = path.join(this._localPath, toolchain.toString(), name);
-    const zipFile = path.join(dir, `libnode_${name}.zip`);
 
-    try {
-      const stat = fs.statSync(zipFile);
-      if (stat.size === 0) {
-        console.log(`[dynamic] zip file is empty, treating as non-existent: ${zipFile}`);
-        return false;
-      }
-    } catch {
+    if (!this.hasArchive(name)) {
       return false;
     }
 
@@ -50,6 +43,26 @@ class Local {
     try {
       const pkgStat = fs.statSync(packageFile);
       return pkgStat.size > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  hasArchive(name) {
+    const zipFile = path.join(
+      this._localPath,
+      toolchain.toString(),
+      name,
+      `libnode_${name}.zip`
+    );
+
+    try {
+      const stat = fs.statSync(zipFile);
+      if (stat.size === 0) {
+        console.log(`[dynamic] zip file is empty, treating as non-existent: ${zipFile}`);
+        return false;
+      }
+      return true;
     } catch {
       return false;
     }

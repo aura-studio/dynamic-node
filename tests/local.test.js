@@ -75,6 +75,7 @@ describe("Local", () => {
       const d = setupDir(testName);
       createZip(d, testName, makeHandlerBundle());
       expect(local.exists(testName)).toBe(false);
+      expect(local.hasArchive(testName)).toBe(true);
     });
   });
 
@@ -141,6 +142,20 @@ describe("Local", () => {
       const local = new Local(TMP_ROOT);
       const mod = await local.load(name);
       expect(mod).toBeDefined();
+    });
+
+    it("extracts zip-only package through warehouse load", async () => {
+      const { Warehouse } = require("../src/warehouse");
+      const name = "zip_only_v1";
+      const dir = setupDir(name);
+      createZip(dir, name, makeHandlerBundle("zip-only"));
+
+      const warehouse = new Warehouse();
+      warehouse.init(TMP_ROOT, "");
+
+      const mod = await warehouse.load(name);
+      expect(mod.name).toBe("zip-only");
+      expect(fs.existsSync(path.join(dir, "bundle.js"))).toBe(true);
     });
 
     it("clears require cache between loads", async () => {

@@ -1,0 +1,8 @@
+{
+  "name": "dynamic-node-runtime-sample-app",
+  "version": "1.0.0",
+  "description": "Tunnel target used by dynamic-node runtime examples",
+  "main": "index.js",
+  "type": "commonjs",
+  "dependencies": {}
+}

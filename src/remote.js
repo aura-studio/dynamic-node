@@ -9,7 +9,6 @@
 
 const path = require("path");
 const fs = require("fs");
-const os = require("os");
 const crypto = require("crypto");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { toolchain } = require("./toolchain");
@@ -42,8 +41,7 @@ function createRemote(remotePath) {
 
   switch (url.protocol) {
     case "s3:":
-      // s3://bucket  -> hostname = bucket
-      return new S3Remote(url.hostname);
+      return new S3Remote(url.hostname, normalizePrefix(url.pathname));
     default:
       throw new Error(`dynamic: unknown remote scheme: ${url.protocol}`);
   }
@@ -54,12 +52,17 @@ function createRemote(remotePath) {
 // ---------------------------------------------------------------------------
 
 class S3Remote {
-  constructor(bucket) {
+  constructor(bucket, prefix = "") {
     this._bucket = bucket;
+    this._prefix = prefix;
   }
 
   getPath() {
-    return `s3://${this._bucket}`;
+    return this._prefix ? `s3://${this._bucket}/${this._prefix}` : `s3://${this._bucket}`;
+  }
+
+  keyFor(name) {
+    return posixJoin(toolchain.toString(), name, `libnode_${name}.zip`);
   }
 
   /**
@@ -75,7 +78,7 @@ class S3Remote {
 
     const fileName = `libnode_${name}.zip`;
     const localFilePath = path.join(dir, fileName);
-    const remoteKey = [toolchain.toString(), name, fileName].join("/");
+    const remoteKey = this.keyFor(name);
 
     // Skip if already exists and non-zero
     try {
@@ -92,7 +95,7 @@ class S3Remote {
     }
 
     console.log(
-      `[dynamic] downloading s3://${this._bucket}/${remoteKey} -> ${localFilePath}`
+      `[dynamic] downloading s3://${this._bucket}/${this._fullKey(remoteKey)} -> ${localFilePath}`
     );
 
     const startTime = Date.now();
@@ -118,14 +121,15 @@ class S3Remote {
    * Downloads a single file from S3 with atomic write (tmp + rename).
    */
   async _downloadFile(remoteKey, localFilePath) {
-    const client = new S3Client({});
+    const client = new S3Client(createS3ClientConfig());
+    const key = this._fullKey(remoteKey);
 
     let response;
     try {
       response = await client.send(
         new GetObjectCommand({
           Bucket: this._bucket,
-          Key: remoteKey,
+          Key: key,
         })
       );
     } catch (err) {
@@ -135,20 +139,20 @@ class S3Remote {
         (err.$metadata && err.$metadata.httpStatusCode === 404)
       ) {
         throw new PackageNotExistError(
-          `dynamic: S3 object not found: s3://${this._bucket}/${remoteKey}`
+          `dynamic: S3 object not found: s3://${this._bucket}/${key}`
         );
       }
       throw err;
     }
 
     if (!response.Body) {
-      throw new Error(`dynamic: empty response body for s3://${this._bucket}/${remoteKey}`);
+      throw new Error(`dynamic: empty response body for s3://${this._bucket}/${key}`);
     }
 
     // Write to temp file first, then atomic rename
     const tmpFile = path.join(
-      os.tmpdir(),
-      `dynamic-node-${crypto.randomBytes(8).toString("hex")}.tmp`
+      path.dirname(localFilePath),
+      `.dynamic-node-${crypto.randomBytes(8).toString("hex")}.tmp`
     );
 
     try {
@@ -182,6 +186,51 @@ class S3Remote {
       throw err;
     }
   }
+
+  _fullKey(key) {
+    return this._prefix ? posixJoin(this._prefix, key) : key;
+  }
 }
 
-module.exports = { PackageNotExistError, isPackageNotExist, createRemote };
+function normalizePrefix(value) {
+  return String(value || "").replace(/^\/+|\/+$/g, "");
+}
+
+function posixJoin(...parts) {
+  return parts
+    .filter(Boolean)
+    .join("/")
+    .replace(/\/+/g, "/")
+    .replace(/^\/+|\/+$/g, "");
+}
+
+function createS3ClientConfig() {
+  const endpoint =
+    process.env.AWS_ENDPOINT_URL_S3 ||
+    process.env.AWS_ENDPOINT_URL ||
+    process.env.DYNAMIC_NODE_S3_ENDPOINT ||
+    "";
+  const region = process.env.AWS_REGION || "us-east-1";
+  const forcePathStyle = parseBool(
+    process.env.AWS_S3_FORCE_PATH_STYLE ||
+      process.env.S3_FORCE_PATH_STYLE ||
+      process.env.DYNAMIC_NODE_S3_FORCE_PATH_STYLE ||
+      endpoint
+  );
+
+  return {
+    region,
+    ...(endpoint ? { endpoint } : {}),
+    ...(forcePathStyle ? { forcePathStyle: true } : {}),
+  };
+}
+
+function parseBool(value) {
+  if (!value) {
+    return false;
+  }
+  const normalized = String(value).toLowerCase().trim();
+  return !["0", "false", "no", "off"].includes(normalized);
+}
+
+module.exports = { PackageNotExistError, isPackageNotExist, createRemote, S3Remote };

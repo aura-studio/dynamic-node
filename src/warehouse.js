@@ -46,14 +46,21 @@ class Warehouse {
       throw new Error("dynamic: warehouse not initialized");
     }
 
-    // Try local first
     if (this.local.exists(name)) {
       const mod = await this.local.load(name);
       console.log(`[dynamic] load warehouse package ${name} success (local)`);
       return mod;
     }
 
-    // No local -> sync from remote
+    if (this.local.hasArchive(name)) {
+      this.local.extract(name);
+      if (this.local.exists(name)) {
+        const mod = await this.local.load(name);
+        console.log(`[dynamic] load warehouse package ${name} success (local archive)`);
+        return mod;
+      }
+    }
+
     if (!this.remote) {
       throw new Error("dynamic: warehouse package not exists");
     }

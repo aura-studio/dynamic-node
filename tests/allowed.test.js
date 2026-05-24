@@ -52,6 +52,10 @@ describe("allowed", () => {
       expect(allowed.isPath("../parent")).toBe(true);
     });
 
+    it("requires dot-relative paths to include a slash", () => {
+      expect(allowed.isPath(".hidden")).toBe(false);
+    });
+
     it("accepts Windows drive paths", () => {
       expect(allowed.isPath("C:\\Users\\test")).toBe(true);
       expect(allowed.isPath("D:/data")).toBe(true);

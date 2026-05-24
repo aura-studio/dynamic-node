@@ -1,108 +1,111 @@
 # dynamic-node examples
 
-These examples are manual verification scripts for `@aura-studio/dynamic-node`.
-They mirror the step-by-step style used by `dynamic-node-cli/examples`.
+These examples verify that `@aura-studio/dynamic-node` can load artifacts built
+by `dynamic-node-cli`. The scripts are JavaScript entrypoints so the same
+commands work on Windows, macOS, and Linux.
 
-Run one step at a time on PowerShell:
+The target projects are:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File examples/scripts/01-smoke.ps1
-powershell -ExecutionPolicy Bypass -File examples/scripts/02-static-register.ps1
-powershell -ExecutionPolicy Bypass -File examples/scripts/03-local-bundle.ps1
-```
+- `sample-app`: exports a direct Tunnel.
+- `service-app`: calls `service.new(app)` and exports that Tunnel.
+- `wire-app`: uses the same `app` with both `http.createServer(app)` and `wire.new(app)`.
 
-Run one step at a time on bash:
-
-```sh
-bash examples/scripts/01-smoke.sh
-bash examples/scripts/02-static-register.sh
-bash examples/scripts/03-local-bundle.sh
-```
-
-Run all local checks:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File examples/scripts/99-run-all-local.ps1
-```
-
-```sh
-bash examples/scripts/99-run-all-local.sh
-```
-
-Run the optional S3 check after preparing a remote package that exports
-`Tunnel` or `New`:
-
-```sh
-DYNAMIC_NODE_EXAMPLE_REMOTE=s3://your-bucket \
-DYNAMIC_NODE_EXAMPLE_REMOTE_NAMESPACE=demo \
-DYNAMIC_NODE_EXAMPLE_REMOTE_PACKAGE=remote \
-DYNAMIC_NODE_EXAMPLE_REMOTE_VERSION=v1 \
-bash examples/scripts/08-remote-s3.sh
-```
-
-PowerShell:
-
-```powershell
-$env:DYNAMIC_NODE_EXAMPLE_REMOTE = "s3://your-bucket"
-$env:DYNAMIC_NODE_EXAMPLE_REMOTE_NAMESPACE = "demo"
-$env:DYNAMIC_NODE_EXAMPLE_REMOTE_PACKAGE = "remote"
-$env:DYNAMIC_NODE_EXAMPLE_REMOTE_VERSION = "v1"
-powershell -ExecutionPolicy Bypass -File examples/scripts/08-remote-s3.ps1
-```
-
-## Script Index
-
-| Script | Purpose |
-|---|---|
-| `00-clean.sh` / `00-clean.ps1` | Remove generated example files. |
-| `01-smoke.sh` / `01-smoke.ps1` | Check public exports, toolchain overrides, and Template behavior. |
-| `02-static-register.sh` / `02-static-register.ps1` | Verify `registerPackage`, `getPackage`, `invoke`, `meta`, and `closePackage`. |
-| `03-local-bundle.sh` / `03-local-bundle.ps1` | Verify local warehouse loading for `bundle` variant with `exports.Tunnel`. |
-| `04-local-full.sh` / `04-local-full.ps1` | Verify local warehouse loading for `full` variant with `exports.New`. |
-| `05-namespace-default-version.sh` / `05-namespace-default-version.ps1` | Verify namespace isolation and default-version fallback. |
-| `06-validation-errors.sh` / `06-validation-errors.ps1` | Verify validation errors for invalid warehouse, namespace, package, and version values. |
-| `07-tunnel-symbols.sh` / `07-tunnel-symbols.ps1` | Verify `Tunnel`, `New`, and upper-case Go-style Tunnel methods. |
-| `08-remote-s3.sh` / `08-remote-s3.ps1` | Optional real S3 sync/load check. |
-| `99-run-all-local.sh` / `99-run-all-local.ps1` | Run all local scripts. |
-| `99-run-all-with-s3.sh` / `99-run-all-with-s3.ps1` | Run local scripts and the optional S3 script. |
-
-## Generated Files
-
-Examples write generated warehouse packages under:
+The build matrix is:
 
 ```text
-examples/.tmp/warehouse
+sample-app  x bundle -> bundle
+sample-app  x full   -> full
+service-app x bundle -> service-bundle
+service-app x full   -> service-full
+wire-app    x bundle -> wire-bundle
+wire-app    x full   -> wire-full
 ```
 
-Override it with:
+`dynamic-node-cli` builds the zip artifacts. `dynamic-node` then loads them from
+the local warehouse or from S3.
 
-```sh
-DYNAMIC_NODE_EXAMPLE_WAREHOUSE=/tmp/dynamic-node-example bash examples/scripts/03-local-bundle.sh
+## Quick Local Run
+
+From the repository root:
+
+```bash
+npm run test:examples
 ```
 
-## Package Contract
+Manual steps:
 
-Every dynamically loaded package must export one of:
-
-```js
-exports.Tunnel = {
-  init() {},
-  async invoke(route, request) {},
-  meta() { return ""; },
-  close() {},
-};
+```bash
+node examples/scripts/00-clean.js
+node examples/scripts/01-smoke.js
+node examples/scripts/02-build-all.js
+node examples/scripts/03-local.js
+node examples/scripts/04-service.js
+node examples/scripts/05-wire.js
+node examples/scripts/06-default-version.js
+node examples/scripts/07-validation-errors.js
 ```
 
-or:
+## S3-Compatible Docker Run
 
-```js
-exports.New = () => ({
-  init() {},
-  async invoke(route, request) {},
-  meta() { return ""; },
-  close() {},
-});
+The S3 flow can run without a real AWS bucket by starting MinIO:
+
+```bash
+npm run test:examples:s3:docker
 ```
 
-Upper-case Go-style methods (`Init`, `Invoke`, `Meta`, `Close`) are also
-accepted.
+The script starts `minio/minio:latest`, creates a bucket, asks
+`dynamic-node-cli` to push artifacts, removes the local warehouse, then verifies
+that `dynamic-node` downloads, extracts, and loads all six artifacts.
+
+Useful overrides:
+
+```bash
+set DYNAMIC_NODE_TEST_ID=manual
+set DYNAMIC_NODE_TEST_S3_IMAGE=minio/minio:latest
+set DYNAMIC_NODE_TEST_KEEP_DOCKER=1
+```
+
+On bash shells use `export` instead of `set`.
+
+## Real S3 Run
+
+```bash
+export AWS_PROFILE=aws-3
+export AWS_REGION=us-west-1
+export DYNAMIC_NODE_TEST_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+export DYNAMIC_NODE_TEST_REMOTE="s3://your-bucket/dynamic-node-test/${DYNAMIC_NODE_TEST_ID}"
+npm run test:examples:s3
+```
+
+The S3 script removes the remote prefix at the end unless
+`DYNAMIC_NODE_TEST_KEEP_REMOTE=1` is set.
+
+## Web Runner
+
+```bash
+npm run examples:web
+```
+
+Open the printed `http://127.0.0.1:<port>` URL and run the steps from the page.
+
+## Paths
+
+Defaults:
+
+```text
+DYNAMIC_NODE_CLI_ROOT=../dynamic-node-cli
+DYNAMIC_NODE_TEST_WAREHOUSE=examples/warehouse
+DYNAMIC_NODE_TEST_CONFIG=examples/dynamic-node-cli.yaml
+DYNAMIC_NODE_TEST_ID=manual
+DYNAMIC_NODE_TEST_REMOTE=s3://dynamic-node-test/manual
+```
+
+Generated files are ignored by git:
+
+```text
+examples/dynamic-node-cli.yaml
+examples/warehouse/
+examples/.npm-cache/
+examples/*/node_modules/
+examples/*/package-lock.json
+```

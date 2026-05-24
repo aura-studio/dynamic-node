@@ -54,15 +54,17 @@ For the `bundle` variant, the extracted package must contain `bundle.js`.
 For non-bundle variants, Node resolves the extracted directory with normal
 `index.js` / `package.json#main` rules.
 
+If the local warehouse contains only `libnode_<name>.zip`, `dynamic-node`
+extracts it on first load. This matches artifacts pulled by `dynamic-node-cli`.
+
 ## Notes
 
 Node cannot replicate Go `plugin.Open` exactly. The Node implementation uses
 `require()` for CommonJS packages and clears the top-level require cache entry
 before each local load. This is not a full unload of nested dependencies.
 
-S3 integration tests are real remote tests and are disabled by default. Enable
-them with:
+S3-compatible examples can run against Docker MinIO:
 
 ```sh
-DYNAMIC_NODE_RUN_S3_TESTS=1 npm test
+npm run test:examples:s3:docker
 ```

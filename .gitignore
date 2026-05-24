@@ -5,3 +5,8 @@ coverage/
 .env
 tests/__fixtures__/bundle.js
 examples/.tmp/
+examples/warehouse/
+examples/.npm-cache/
+examples/dynamic-node-cli.yaml
+examples/*/node_modules/
+examples/*/package-lock.json

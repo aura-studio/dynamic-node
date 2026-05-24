@@ -14,6 +14,7 @@ Configures the local warehouse and optional remote warehouse.
 
 ```js
 dynamic.useWarehouse("/opt/warehouse", "s3://my-bucket");
+dynamic.useWarehouse("/opt/warehouse", "s3://my-bucket/prefix");
 ```
 
 Rules follow Go `dynamic`:
@@ -22,6 +23,11 @@ Rules follow Go `dynamic`:
 - `useWarehouse(local, "")`: local-only warehouse.
 - `useWarehouse(local, remote)`: local warehouse with remote sync.
 - `useWarehouse("", remote)`: invalid.
+
+S3-compatible endpoints are supported through `AWS_ENDPOINT_URL`,
+`AWS_ENDPOINT_URL_S3`, or `DYNAMIC_NODE_S3_ENDPOINT`. Set
+`AWS_S3_FORCE_PATH_STYLE=1` or `DYNAMIC_NODE_S3_FORCE_PATH_STYLE=1` when the
+endpoint requires path-style addressing.
 
 ### `useNamespace(namespace)`
 
@@ -127,5 +133,8 @@ Node also cannot fully unload a module graph. `dynamic-node` clears the top-leve
 entry from `require.cache` before local loads, but dependencies required by the
 package may remain cached by Node.
 
-S3 tests require AWS configuration and are disabled by default. Set
-`DYNAMIC_NODE_RUN_S3_TESTS=1` to run them.
+Examples include a Docker MinIO S3-compatible flow:
+
+```sh
+npm run test:examples:s3:docker
+```

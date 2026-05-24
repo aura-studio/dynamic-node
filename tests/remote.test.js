@@ -14,7 +14,7 @@ const TMP_ROOT = path.join(os.tmpdir(), "dynamic-node-test-remote");
 const describeS3 =
   process.env.DYNAMIC_NODE_RUN_S3_TESTS === "1" ? describe : describe.skip;
 
-describeS3("Remote (S3 integration)", () => {
+describe("Remote", () => {
   beforeAll(() => {
     overrideToolchain();
     fs.mkdirSync(TMP_ROOT, { recursive: true });
@@ -42,6 +42,15 @@ describeS3("Remote (S3 integration)", () => {
       expect(remote.getPath()).toBe(`s3://${TEST_S3_BUCKET}`);
     });
 
+    it("preserves S3 prefix for dynamic-node-cli-compatible keys", () => {
+      const { createRemote } = getRemote();
+      const remote = createRemote(`s3://${TEST_S3_BUCKET}/manual/prefix`);
+      expect(remote.getPath()).toBe(`s3://${TEST_S3_BUCKET}/manual/prefix`);
+      expect(remote._fullKey(remote.keyFor(TEST_PACKAGE_NAME))).toBe(
+        `manual/prefix/${toolchain.toString()}/${TEST_PACKAGE_NAME}/libnode_${TEST_PACKAGE_NAME}.zip`
+      );
+    });
+
     it("throws for unknown scheme", () => {
       const { createRemote } = getRemote();
       expect(() => createRemote("ftp://example.com")).toThrow(
@@ -55,7 +64,7 @@ describeS3("Remote (S3 integration)", () => {
     });
   });
 
-  describe("S3 sync", () => {
+  describeS3("S3 sync", () => {
     it("downloads real zip from S3 (aws-3 profile)", async () => {
       const remotePath = `s3://${TEST_S3_BUCKET}`;
       const { createRemote } = getRemote();

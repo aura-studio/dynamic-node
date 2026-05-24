@@ -1,0 +1,11 @@
+{
+  "name": "dynamic-node-runtime-service-app",
+  "version": "1.0.0",
+  "description": "service-node wrapped target used by dynamic-node runtime examples",
+  "main": "index.js",
+  "type": "commonjs",
+  "dependencies": {
+    "@aura-studio/service-node": "file:../../../service-node",
+    "@aura-studio/tunnel-node": "file:../../../tunnel-node"
+  }
+}

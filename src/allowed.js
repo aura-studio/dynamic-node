@@ -18,7 +18,7 @@ const allowedPatterns = {
 
   // Path: Unix absolute (/opt/x), relative (./x, ../x),
   // Windows drive (C:\x, C:/x), UNC (\\server\share)
-  [AllowedType.Path]: /^(?:(?:(?:[A-Za-z]:[/\\])|(?:\\\\)|\/|\.\/?|\.\.\/).+)?$/,
+  [AllowedType.Path]: /^(?:(?:(?:[A-Za-z]:[/\\])|(?:\\\\)|\/|\.\/|\.\.\/).+)?$/,
 
   // URL: common scheme URLs (https://, s3://, file://, etc.)
   [AllowedType.URL]: /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+)?$/,
