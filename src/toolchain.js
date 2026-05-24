@@ -83,14 +83,18 @@ function detectWindowsVersion() {
 }
 
 function detectArch() {
+  // Mirror dynamic-node-cli env.js getArch() so the build (CLI) and runtime
+  // (loader) compute the same arch segment: x64 -> amd64v1, arm64 -> arm64v8, etc.
   const arch = os.arch();
   switch (arch) {
     case "x64":
-      return "amd64";
+      return "amd64v1";
     case "arm64":
-      return "arm64";
-    case "arm":
-      return "arm";
+      return "arm64v8";
+    case "arm": {
+      const armVersion = process.config && process.config.variables && process.config.variables.arm_version;
+      return armVersion ? `armv${armVersion}` : "arm";
+    }
     case "ia32":
       return "386";
     default:

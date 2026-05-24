@@ -24,7 +24,8 @@ describe("toolchain", () => {
       const arch = toolchain.arch;
       expect(arch).toBeTruthy();
       expect(typeof arch).toBe("string");
-      expect(["amd64", "arm64"]).toContain(arch);
+      // Matches dynamic-node-cli env.js getArch(): x64 -> amd64v1, arm64 -> arm64v8.
+      expect(["amd64v1", "arm64v8", "386"]).toContain(arch);
     });
 
     it("detects Compiler (non-empty, starts with 'node')", () => {
