@@ -2,24 +2,39 @@
 
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const AdmZip = require("adm-zip");
 const { toolchain } = require("./toolchain");
+
+const DEFAULT_FALLBACK_EXTRACT_ROOT = path.join(os.tmpdir(), ".dynamic-warehouse");
 
 class Local {
   constructor(localPath) {
     this._localPath = localPath;
+    this._extractPath = isWritable(localPath)
+      ? localPath
+      : DEFAULT_FALLBACK_EXTRACT_ROOT;
+    if (this._extractPath !== this._localPath) {
+      console.log(
+        `[dynamic] warehouse ${localPath} is not writable, will extract to ${this._extractPath}`
+      );
+    }
   }
 
   getPath() {
     return this._localPath;
   }
 
-  exists(name) {
-    const dir = path.join(this._localPath, toolchain.toString(), name);
+  getExtractPath() {
+    return this._extractPath;
+  }
 
+  exists(name) {
     if (!this.hasArchive(name)) {
       return false;
     }
+
+    const dir = path.join(this._extractPath, toolchain.toString(), name);
 
     if (toolchain.variant === "bundle") {
       const bundleFile = path.join(dir, "bundle.js");
@@ -69,17 +84,19 @@ class Local {
   }
 
   extract(name) {
-    const dir = path.join(this._localPath, toolchain.toString(), name);
-    const zipFile = path.join(dir, `libnode_${name}.zip`);
+    const srcDir = path.join(this._localPath, toolchain.toString(), name);
+    const dstDir = path.join(this._extractPath, toolchain.toString(), name);
+    const zipFile = path.join(srcDir, `libnode_${name}.zip`);
 
-    console.log(`[dynamic] extracting ${zipFile} to ${dir}`);
+    console.log(`[dynamic] extracting ${zipFile} to ${dstDir}`);
 
+    fs.mkdirSync(dstDir, { recursive: true });
     const zip = new AdmZip(zipFile);
-    zip.extractAllTo(dir, true);
+    zip.extractAllTo(dstDir, true);
   }
 
   async load(name) {
-    const dir = path.join(this._localPath, toolchain.toString(), name);
+    const dir = path.join(this._extractPath, toolchain.toString(), name);
     const entryFile =
       toolchain.variant === "bundle"
         ? path.join(dir, "bundle.js")
@@ -93,6 +110,24 @@ class Local {
     }
 
     return require(entryFile);
+  }
+}
+
+function isWritable(p) {
+  try {
+    fs.accessSync(p, fs.constants.W_OK);
+    return true;
+  } catch (err) {
+    if (err && err.code === "ENOENT") {
+      // Path doesn't exist yet — try to create it so subsequent extract calls succeed.
+      try {
+        fs.mkdirSync(p, { recursive: true });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
   }
 }
 
