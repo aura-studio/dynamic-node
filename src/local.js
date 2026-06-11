@@ -30,37 +30,27 @@ class Local {
   }
 
   exists(name) {
-    if (!this.hasArchive(name)) {
-      return false;
+    return this._loadableDir(name) !== null;
+  }
+
+  /**
+   * Returns the first directory containing a loadable form of the package.
+   * The local warehouse is checked first: a package pre-extracted at image
+   * build time lives there, and require() from a read-only path is fine —
+   * no runtime extraction needed at all. The extract path (runtime
+   * extraction output) is the fallback.
+   */
+  _loadableDir(name) {
+    const dirs = [path.join(this._localPath, toolchain.toString(), name)];
+    if (this._extractPath !== this._localPath) {
+      dirs.push(path.join(this._extractPath, toolchain.toString(), name));
     }
-
-    const dir = path.join(this._extractPath, toolchain.toString(), name);
-
-    if (toolchain.variant === "bundle") {
-      const bundleFile = path.join(dir, "bundle.js");
-      try {
-        const stat = fs.statSync(bundleFile);
-        return stat.size > 0;
-      } catch {
-        return false;
+    for (const dir of dirs) {
+      if (hasLoadableForm(dir)) {
+        return dir;
       }
     }
-
-    const indexFile = path.join(dir, "index.js");
-    const packageFile = path.join(dir, "package.json");
-    try {
-      const indexStat = fs.statSync(indexFile);
-      if (indexStat.size > 0) return true;
-    } catch {
-      // index.js not found, check package.json.
-    }
-
-    try {
-      const pkgStat = fs.statSync(packageFile);
-      return pkgStat.size > 0;
-    } catch {
-      return false;
-    }
+    return null;
   }
 
   hasArchive(name) {
@@ -96,7 +86,9 @@ class Local {
   }
 
   async load(name) {
-    const dir = path.join(this._extractPath, toolchain.toString(), name);
+    const dir =
+      this._loadableDir(name) ||
+      path.join(this._extractPath, toolchain.toString(), name);
     const entryFile =
       toolchain.variant === "bundle"
         ? path.join(dir, "bundle.js")
@@ -110,6 +102,24 @@ class Local {
     }
 
     return require(entryFile);
+  }
+}
+
+function hasLoadableForm(dir) {
+  if (toolchain.variant === "bundle") {
+    return fileNonEmpty(path.join(dir, "bundle.js"));
+  }
+  return (
+    fileNonEmpty(path.join(dir, "index.js")) ||
+    fileNonEmpty(path.join(dir, "package.json"))
+  );
+}
+
+function fileNonEmpty(file) {
+  try {
+    return fs.statSync(file).size > 0;
+  } catch {
+    return false;
   }
 }
 

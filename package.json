@@ -1,6 +1,6 @@
 {
   "name": "@aura-studio/dynamic-node",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Node.js runtime library for dynamically loading plugin packages from S3",
   "main": "src/index.js",
   "files": [
